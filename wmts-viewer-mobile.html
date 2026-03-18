@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>WMTS 圖資瀏覽器</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --bg:      #0f1117;
+  --surface: #1a1d27;
+  --surface2:#22263a;
+  --border:  #2e3350;
+  --accent:  #4f8ef7;
+  --accent2: #7c3aed;
+  --text:    #e8ecf4;
+  --muted:   #8890a8;
+  --success: #22c55e;
+  --warn:    #f59e0b;
+  --danger:  #ef4444;
+  --font:    'Segoe UI','Microsoft JhengHei',sans-serif;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --sheet-peek: 72px; /* height visible when closed */
+}
+
+html, body {
+  height: 100%; width: 100%;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  position: fixed;
+}
+
+/* ── Full-screen map ── */
+#map {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+/* ── Top header bar ── */
+.topbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 500;
+  background: rgba(26,29,39,0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 14px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-icon {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.url-input {
+  flex: 1;
+  height: 38px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 0 12px;
+  outline: none;
+  font-family: monospace;
+  min-width: 0;
+}
+.url-input:focus { border-color: var(--accent); }
+.url-input::placeholder { color: var(--muted); font-size: 12px; }
+
+.btn-load {
+  height: 38px;
+  padding: 0 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-family: var(--font);
+  active-transform: scale(0.96);
+}
+.btn-load:active { opacity: 0.8; transform: scale(0.97); }
+
+/* ── Status pill (floating) ── */
+.status-pill {
+  position: absolute;
+  top: calc(62px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 490;
+  background: rgba(26,29,39,0.9);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 5px 14px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-idle    { background: var(--muted); }
+.dot-loading { background: var(--warn); animation: pulse 1s infinite; }
+.dot-ok      { background: var(--success); }
+.dot-err     { background: var(--danger); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+/* ── Bottom sheet ── */
+.sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 599;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.sheet-backdrop.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bottom-sheet {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  z-index: 600;
+  background: var(--surface);
+  border-radius: 18px 18px 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+  /* default: only peek visible */
+  transform: translateY(calc(100% - var(--sheet-peek) - var(--safe-bottom)));
+  will-change: transform;
+  touch-action: none;
+  max-height: 88vh;
+}
+
+.bottom-sheet.open {
+  transform: translateY(0);
+}
+
+/* drag handle */
+.sheet-handle-area {
+  padding: 10px 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: grab;
+  flex-shrink: 0;
+}
+.sheet-handle {
+  width: 40px; height: 5px;
+  background: var(--border);
+  border-radius: 3px;
+}
+
+/* Tab bar inside sheet */
+.sheet-tabs {
+  display: flex;
+  padding: 0 14px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.tab-btn {
+  flex: 1;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 13px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-weight: 500;
+}
+.tab-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+.tab-btn:active { transform: scale(0.97); }
+
+/* Sheet content */
+.sheet-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-panel {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tab-panel.active { display: flex; }
+
+/* Scrollable list */
+.scroll-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 14px;
+  padding-bottom: calc(10px + var(--safe-bottom));
+  -webkit-overflow-scrolling: touch;
+}
+.scroll-list::-webkit-scrollbar { display: none; }
+
+/* ── Layer items ── */
+.layer-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.layer-card:active { background: rgba(79,142,247,0.12); }
+.layer-card.loaded { border-color: var(--accent); background: rgba(79,142,247,0.07); }
+
+.layer-card-text { flex: 1; min-width: 0; }
+.layer-card-title {
+  font-size: 14px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.layer-card-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.add-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: background 0.15s, color 0.15s;
+}
+.layer-card:not(.loaded):active .add-icon,
+.layer-card:not(.loaded):hover .add-icon {
+  background: var(--accent);
+  color: #fff;
+}
+.layer-card.loaded .add-icon {
+  background: rgba(34,197,94,0.2);
+  color: var(--success);
+  font-size: 14px;
+}
+
+/* ── Preset cards ── */
+.preset-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 12px;
+  transition: border-color 0.15s;
+}
+.preset-card:active { border-color: var(--accent); background: rgba(79,142,247,0.08); }
+.preset-icon {
+  font-size: 22px;
+  width: 40px; height: 40px;
+  background: var(--border);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.preset-name { font-size: 14px; font-weight: 600; }
+.preset-sub  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* ── Active layers (overlay slots) ── */
+.overlay-slot {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  transition: border-color 0.2s;
+}
+.overlay-slot.has-layer { border-color: var(--accent); }
+
+.slot-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 0;
+}
+.slot-num {
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  background: var(--border);
+  color: var(--muted);
+  font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.overlay-slot.has-layer .slot-num { color: #fff; }
+
+.slot-title {
+  flex: 1; font-size: 13px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--muted);
+}
+.overlay-slot.has-layer .slot-title { color: var(--text); }
+
+.btn-remove {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.3);
+  color: var(--danger);
+  font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.btn-remove:active { background: rgba(239,68,68,0.3); }
+
+.opacity-section { margin-top: 10px; }
+.opacity-label {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: var(--muted);
+  margin-bottom: 4px;
+}
+.opacity-label span:last-child { color: var(--text); font-weight: 700; }
+input[type=range] {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+  border: none;
+  background: var(--border);
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+input[type=range]::-moz-range-thumb {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+}
+
+.empty-slot-label {
+  font-size: 12px; color: var(--muted); font-style: italic;
+}
+
+/* ── Peek bar (visible when closed) ── */
+.peek-bar {
+  display: flex;
+  align-items: center;
+  padding: 0 16px 10px;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.peek-summary {
+  flex: 1;
+  font-size: 13px; color: var(--muted);
+}
+.peek-summary strong { color: var(--text); }
+.btn-sheet-toggle {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--font);
+  cursor: pointer;
+  font-weight: 600;
+}
+.btn-sheet-toggle:active { background: var(--border); }
+
+/* ── Section title ── */
+.sec-title {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: var(--muted);
+  padding: 4px 0 8px;
+}
+
+/* ── Max warn ── */
+.max-warn {
+  background: rgba(245,158,11,0.1);
+  border: 1px solid rgba(245,158,11,0.3);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--warn);
+  margin-bottom: 8px;
+  display: none;
+}
+.max-warn.show { display: block; }
+
+/* ── Loading overlay ── */
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15,17,23,0.75);
+  z-index: 700;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+.loading-overlay.show { display: flex; }
+.spinner {
+  width: 40px; height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 14px; color: var(--muted); }
+
+/* ── Leaflet overrides ── */
+.leaflet-control-zoom {
+  margin-bottom: calc(var(--sheet-peek) + 20px + var(--safe-bottom)) !important;
+}
+.leaflet-control-zoom a {
+  width: 38px !important; height: 38px !important;
+  line-height: 38px !important;
+  font-size: 18px !important;
+  background: rgba(26,29,39,0.92) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+.leaflet-control-zoom a:hover { background: var(--surface2) !important; }
+.leaflet-bar { border: 1px solid var(--border) !important; box-shadow: 0 2px 12px rgba(0,0,0,0.4) !important; }
+.leaflet-control-attribution {
+  background: rgba(15,17,23,0.75) !important;
+  color: var(--muted) !important;
+  font-size: 10px !important;
+  margin-bottom: calc(var(--sheet-peek) + var(--safe-bottom)) !important;
+}
+.leaflet-control-attribution a { color: var(--accent) !important; }
+
+/* Badge */
+.badge {
+  display: inline-block; font-size: 10px;
+  padding: 1px 5px; border-radius: 4px; font-weight: 600;
+}
+.badge-blue   { background: rgba(79,142,247,0.2); color: #7ab3ff; }
+.badge-green  { background: rgba(34,197,94,0.2);  color: #4ade80; }
+.badge-amber  { background: rgba(245,158,11,0.2); color: #fcd34d; }
+
+/* Slot colors */
+.c0 { background: #4f8ef7; } .c1 { background: #22c55e; }
+.c2 { background: #f59e0b; } .c3 { background: #ef4444; }
+.c4 { background: #c084fc; }
+
+/* URL modal */
+.url-modal-backdrop {
+  position: absolute; inset: 0; z-index: 800;
+  background: rgba(0,0,0,0.6);
+  display: none; align-items: flex-end;
+}
+.url-modal-backdrop.show { display: flex; }
+.url-modal {
+  background: var(--surface);
+  border-radius: 18px 18px 0 0;
+  border-top: 1px solid var(--border);
+  padding: 20px 16px;
+  padding-bottom: calc(20px + var(--safe-bottom));
+  width: 100%;
+}
+.url-modal h3 { font-size: 15px; margin-bottom: 12px; color: var(--accent); }
+.url-modal input {
+  width: 100%; height: 42px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text);
+  font-size: 13px; padding: 0 12px; outline: none;
+  font-family: monospace; margin-bottom: 10px;
+}
+.url-modal input:focus { border-color: var(--accent); }
+.modal-actions { display: flex; gap: 8px; }
+.modal-actions button {
+  flex: 1; height: 44px; border-radius: 10px; border: none;
+  font-size: 15px; font-weight: 700; cursor: pointer;
+  font-family: var(--font);
+}
+.modal-btn-primary { background: var(--accent); color: #fff; }
+.modal-btn-cancel  { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.modal-btn-primary:active { opacity: 0.8; }
+.modal-btn-cancel:active  { background: var(--border); }
+</style>
+</head>
+<body>
+
+<!-- Map -->
+<div id="map"></div>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="logo-icon">🗺</div>
+  <input class="url-input" id="urlInput" type="url" inputmode="url"
+    placeholder="WMTS 網址…"
+    value="https://wmts.nlsc.gov.tw/wmts"/>
+  <button class="btn-load" onclick="loadWMTS()">載入</button>
+</div>
+
+<!-- Status pill -->
+<div class="status-pill" id="statusPill">
+  <div class="status-dot dot-idle" id="statusDot"></div>
+  <span id="statusMsg">就緒 · OpenStreetMap</span>
+</div>
+
+<!-- Sheet backdrop -->
+<div class="sheet-backdrop" id="sheetBackdrop" onclick="closeSheet()"></div>
+
+<!-- Bottom sheet -->
+<div class="bottom-sheet" id="bottomSheet">
+  <!-- Drag handle -->
+  <div class="sheet-handle-area" id="sheetHandleArea">
+    <div class="sheet-handle"></div>
+  </div>
+
+  <!-- Peek bar -->
+  <div class="peek-bar">
+    <div class="peek-summary" id="peekSummary">
+      <strong>0</strong> 個圖層已開啟
+    </div>
+    <button class="btn-sheet-toggle" onclick="toggleSheet()">圖層管理 ▲</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="sheet-tabs">
+    <button class="tab-btn active" id="tab-layers" onclick="switchTab('layers')">
+      ⬡ 疊加圖層
+    </button>
+    <button class="tab-btn" id="tab-available" onclick="switchTab('available')">
+      📋 可用圖層
+    </button>
+    <button class="tab-btn" id="tab-presets" onclick="switchTab('presets')">
+      ⚡ 常用
+    </button>
+  </div>
+
+  <div class="sheet-content">
+    <!-- Tab: Active overlays -->
+    <div class="tab-panel active" id="panel-layers">
+      <div class="scroll-list" id="activeLayers">
+        <!-- rendered by JS -->
+      </div>
+    </div>
+
+    <!-- Tab: Available layers from WMTS -->
+    <div class="tab-panel" id="panel-available">
+      <div class="scroll-list">
+        <div id="maxWarn" class="max-warn">⚠️ 已達上限（5 個圖層），請先移除現有圖層</div>
+        <div id="layerList">
+          <div style="text-align:center;padding:32px 0;color:var(--muted);font-size:13px;">
+            📡 請輸入 WMTS 網址並點擊「載入」
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Presets -->
+    <div class="tab-panel" id="panel-presets">
+      <div class="scroll-list">
+        <div class="sec-title">台灣圖資</div>
+        <div class="preset-card" onclick="loadPreset('nlsc')">
+          <div class="preset-icon">🏛</div>
+          <div>
+            <div class="preset-name">國土測繪中心 WMTS</div>
+            <div class="preset-sub">wmts.nlsc.gov.tw — 多種地形與地籍圖層</div>
+          </div>
+        </div>
+        <div class="preset-card" onclick="loadPreset('nlsc_ortho')">
+          <div class="preset-icon">🛰</div>
+          <div>
+            <div class="preset-name">國土測繪 · 正射影像</div>
+            <div class="preset-sub">直接疊加航空正射影像</div>
+          </div>
+        </div>
+        <div class="preset-card" onclick="loadPreset('nlsc_topo')">
+          <div class="preset-icon">⛰</div>
+          <div>
+            <div class="preset-name">國土測繪 · 通用版電子地圖</div>
+            <div class="preset-sub">直接疊加通用版電子地圖</div>
+          </div>
+        </div>
+
+        <div class="sec-title" style="margin-top:8px;">全球底圖</div>
+        <div class="preset-card" onclick="loadPreset('esri_sat')">
+          <div class="preset-icon">🌍</div>
+          <div>
+            <div class="preset-name">ESRI 衛星影像</div>
+            <div class="preset-sub">arcgis.com — 全球高解析衛星影像</div>
+          </div>
+        </div>
+        <div class="preset-card" onclick="loadPreset('esri_topo')">
+          <div class="preset-icon">🗺</div>
+          <div>
+            <div class="preset-name">ESRI 地形圖</div>
+            <div class="preset-sub">arcgis.com — 世界地形圖</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">連線中…</div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────
+const MAX_OVERLAYS  = 5;
+const SLOT_COLORS   = ['c0','c1','c2','c3','c4'];
+const HEX_COLORS    = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#c084fc'];
+
+// ── Map init ──────────────────────────────────────────────
+const map = L.map('map', {
+  center: [23.97, 120.97],
+  zoom: 8,
+  zoomControl: true,
+  attributionControl: true,
+});
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom: 19
+}).addTo(map);
+
+// ── State ─────────────────────────────────────────────────
+let overlays  = [];
+let sheetOpen = false;
+let activeTab = 'layers';
+
+// ── Status ────────────────────────────────────────────────
+function setStatus(type, msg) {
+  document.getElementById('statusDot').className = 'status-dot dot-' + type;
+  document.getElementById('statusMsg').textContent = msg;
+}
+
+function showLoading(show, msg) {
+  document.getElementById('loadingOverlay').classList.toggle('show', show);
+  if (msg) document.getElementById('loadingText').textContent = msg;
+}
+
+// ── Sheet control ─────────────────────────────────────────
+function openSheet() {
+  sheetOpen = true;
+  document.getElementById('bottomSheet').classList.add('open');
+  document.getElementById('sheetBackdrop').classList.add('visible');
+  document.querySelector('.btn-sheet-toggle').textContent = '圖層管理 ▼';
+}
+function closeSheet() {
+  sheetOpen = false;
+  document.getElementById('bottomSheet').classList.remove('open');
+  document.getElementById('sheetBackdrop').classList.remove('visible');
+  document.querySelector('.btn-sheet-toggle').textContent = '圖層管理 ▲';
+}
+function toggleSheet() {
+  sheetOpen ? closeSheet() : openSheet();
+}
+
+// Drag-to-close
+(function() {
+  const sheet = document.getElementById('bottomSheet');
+  const handle = document.getElementById('sheetHandleArea');
+  let startY = 0, startTranslate = 0, dragging = false;
+
+  function getTranslate() {
+    const style = window.getComputedStyle(sheet);
+    const matrix = new DOMMatrixReadOnly(style.transform);
+    return matrix.m42;
+  }
+
+  handle.addEventListener('touchstart', e => {
+    dragging = true;
+    startY = e.touches[0].clientY;
+    startTranslate = getTranslate();
+    sheet.style.transition = 'none';
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    const dy = e.touches[0].clientY - startY;
+    const newT = Math.max(0, startTranslate + dy);
+    sheet.style.transform = `translateY(${newT}px)`;
+  }, { passive: true });
+
+  document.addEventListener('touchend', e => {
+    if (!dragging) return;
+    dragging = false;
+    sheet.style.transition = '';
+    const current = getTranslate();
+    const threshold = sheet.offsetHeight * 0.3;
+    if (current > threshold) {
+      closeSheet();
+    } else {
+      openSheet();
+    }
+  });
+})();
+
+// ── Tabs ──────────────────────────────────────────────────
+function switchTab(name) {
+  activeTab = name;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+// ── Peek summary ──────────────────────────────────────────
+function updatePeek() {
+  const n = overlays.length;
+  document.getElementById('peekSummary').innerHTML =
+    `<strong>${n}</strong> 個疊加圖層已開啟`;
+}
+
+// ── Render active slots ───────────────────────────────────
+function renderActiveSlots() {
+  const container = document.getElementById('activeLayers');
+  container.innerHTML = '';
+
+  for (let i = 0; i < MAX_OVERLAYS; i++) {
+    const ov = overlays[i];
+    const slot = document.createElement('div');
+    slot.className = 'overlay-slot' + (ov ? ' has-layer' : '');
+
+    if (ov) {
+      const pct = Math.round(ov.layer.options.opacity * 100);
+      slot.innerHTML = `
+        <div class="slot-header">
+          <div class="slot-num ${SLOT_COLORS[i]}">${i+1}</div>
+          <div class="slot-title">${ov.title}</div>
+          <div class="btn-remove" onclick="removeOverlay(${i})">✕</div>
+        </div>
+        <div class="opacity-section">
+          <div class="opacity-label">
+            <span>透明度</span>
+            <span id="opct-${i}">${pct}%</span>
+          </div>
+          <input type="range" min="0" max="100" value="${pct}"
+            style="accent-color:${HEX_COLORS[i]}"
+            oninput="updateSlotOpacity(${i}, this.value)"/>
+        </div>`;
+    } else {
+      slot.innerHTML = `
+        <div class="slot-header">
+          <div class="slot-num">${i+1}</div>
+          <div class="slot-title empty-slot-label">（空槽位）</div>
+        </div>`;
+    }
+    container.appendChild(slot);
+  }
+
+  document.getElementById('maxWarn').classList.toggle('show', overlays.length >= MAX_OVERLAYS);
+  updatePeek();
+}
+
+function updateSlotOpacity(i, val) {
+  if (overlays[i]) {
+    overlays[i].layer.setOpacity(val / 100);
+    document.getElementById('opct-' + i).textContent = val + '%';
+  }
+}
+
+function removeOverlay(i) {
+  if (!overlays[i]) return;
+  map.removeLayer(overlays[i].layer);
+  overlays.splice(i, 1);
+  renderActiveSlots();
+  setStatus('ok', `已移除圖層，目前 ${overlays.length} 個`);
+}
+
+// ── Parse helpers ─────────────────────────────────────────
+function getText(el, tag) {
+  const node = el.querySelector(tag);
+  return node ? node.textContent.trim() : '';
+}
+
+function parseCapabilities(xmlText) {
+  const xml    = new DOMParser().parseFromString(xmlText, 'text/xml');
+  const layers = [];
+
+  xml.querySelectorAll('Layer').forEach(layer => {
+    const id = getText(layer,'Identifier') || getText(layer,'ows\\:Identifier');
+    if (!id) return;
+    const title    = getText(layer,'Title')    || getText(layer,'ows\\:Title')    || id;
+    const abstract = getText(layer,'Abstract') || getText(layer,'ows\\:Abstract') || '';
+    const formats  = [...layer.querySelectorAll('Format')].map(f=>f.textContent.trim());
+    const tmsLinks = [...layer.querySelectorAll('TileMatrixSetLink')].map(t=>
+      getText(t,'TileMatrixSet') || getText(t,'ows\\:TileMatrixSet'));
+    const styles   = [...layer.querySelectorAll('Style')].map(s=>
+      getText(s,'Identifier') || getText(s,'ows\\:Identifier'));
+    let bbox = null;
+    const bboxEl = layer.querySelector('WGS84BoundingBox') || layer.querySelector('BoundingBox');
+    if (bboxEl) {
+      const lc = getText(bboxEl,'LowerCorner'), uc = getText(bboxEl,'UpperCorner');
+      if (lc && uc) {
+        const [x0,y0] = lc.split(' ').map(Number);
+        const [x1,y1] = uc.split(' ').map(Number);
+        bbox = [[y0,x0],[y1,x1]];
+      }
+    }
+    layers.push({id,title,abstract,formats,tmsLinks,styles,bbox});
+  });
+
+  const resourceUrls = {};
+  xml.querySelectorAll('ResourceURL').forEach(r => {
+    const lyr = r.closest('Layer');
+    if (!lyr) return;
+    const id = getText(lyr,'Identifier') || getText(lyr,'ows\\:Identifier');
+    if (!resourceUrls[id]) resourceUrls[id] = r.getAttribute('template');
+  });
+
+  const opEl = xml.querySelector('OperationsMetadata Operation[name="GetTile"]') ||
+               xml.querySelector('Operation[name="GetTile"]');
+  let kvpUrl = '';
+  if (opEl) { const g = opEl.querySelector('Get'); if (g) kvpUrl = g.getAttribute('xlink:href')||''; }
+
+  return {layers, resourceUrls, kvpUrl};
+}
+
+function buildWMTSTileUrl(baseUrl, layerId, style, tms, format) {
+  const url = baseUrl.split('?')[0].replace(/\/+$/,'');
+  if (url.includes('{TileMatrix}') || url.includes('{z}')) return url;
+  return `${url}?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0`+
+    `&LAYER=${encodeURIComponent(layerId)}&STYLE=${encodeURIComponent(style||'default')}`+
+    `&TILEMATRIXSET=${encodeURIComponent(tms||'GoogleMapsCompatible')}`+
+    `&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=${encodeURIComponent(format||'image/png')}`;
+}
+
+async function fetchCapabilities(url) {
+  try {
+    const r = await fetch(url, {mode:'cors', signal:AbortSignal.timeout(10000)});
+    if (r.ok) return await r.text();
+  } catch(_) {}
+  for (const proxy of [
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+  ]) {
+    try {
+      const r = await fetch(proxy, {signal:AbortSignal.timeout(12000)});
+      if (r.ok) return await r.text();
+    } catch(_) {}
+  }
+  throw new Error('無法取得 Capabilities，請確認網址或網路連線');
+}
+
+// ── Load WMTS ─────────────────────────────────────────────
+async function loadWMTS() {
+  let url = document.getElementById('urlInput').value.trim();
+  if (!url) { alert('請輸入 WMTS 網址'); return; }
+
+  const capUrl = url.includes('?')
+    ? (url.toLowerCase().includes('getcapabilities') ? url
+        : url + '&SERVICE=WMTS&REQUEST=GetCapabilities&VERSION=1.0.0')
+    : url + '?SERVICE=WMTS&REQUEST=GetCapabilities&VERSION=1.0.0';
+
+  showLoading(true, '正在取得 GetCapabilities…');
+  setStatus('loading', '連線中…');
+  document.activeElement.blur(); // close keyboard
+
+  try {
+    const xmlText = await fetchCapabilities(capUrl);
+    showLoading(true, '正在解析圖層資訊…');
+    const {layers, resourceUrls, kvpUrl} = parseCapabilities(xmlText);
+
+    if (layers.length === 0) throw new Error('未找到任何圖層');
+
+    setStatus('ok', `載入 ${layers.length} 個圖層`);
+    renderLayerList(layers, url, resourceUrls, kvpUrl);
+    switchTab('available');
+    openSheet();
+  } catch(err) {
+    setStatus('err', '失敗：' + err.message);
+    document.getElementById('layerList').innerHTML =
+      `<div style="color:var(--danger);font-size:13px;padding:16px 0">⚠️ ${err.message}</div>`;
+    switchTab('available');
+    openSheet();
+  } finally {
+    showLoading(false);
+  }
+}
+
+// ── Render layer list ─────────────────────────────────────
+function renderLayerList(layers, baseUrl, resourceUrls, kvpUrl) {
+  const list = document.getElementById('layerList');
+  list.innerHTML = '';
+  layers.forEach(layer => {
+    const loaded = overlays.some(o => o.id === layer.id);
+    const card = document.createElement('div');
+    card.className = 'layer-card' + (loaded ? ' loaded' : '');
+    card.innerHTML = `
+      <div class="layer-card-text">
+        <div class="layer-card-title">${layer.title}</div>
+        <div class="layer-card-meta">
+          <span class="badge badge-blue">${(layer.formats[0]||'').split('/')[1]||'png'}</span>
+          <span class="badge badge-amber">${layer.tmsLinks[0]||'GoogleMapsCompatible'}</span>
+        </div>
+      </div>
+      <div class="add-icon">${loaded ? '✓' : '+'}</div>`;
+
+    card.onclick = () => {
+      if (loaded) { setStatus('ok', `「${layer.title}」已在地圖上`); return; }
+      if (overlays.length >= MAX_OVERLAYS) {
+        setStatus('err', `已達上限（${MAX_OVERLAYS} 個）`); return;
+      }
+      addOverlayLayer(layer, baseUrl, resourceUrls, kvpUrl);
+      card.classList.add('loaded');
+      card.querySelector('.add-icon').textContent = '✓';
+    };
+    list.appendChild(card);
+  });
+}
+
+// ── Add overlay ───────────────────────────────────────────
+function addOverlayLayer(layer, baseUrl, resourceUrls, kvpUrl) {
+  const style = layer.styles[0] || 'default';
+  const tms   = layer.tmsLinks[0] || 'GoogleMapsCompatible';
+  const fmt   = layer.formats.find(f => f.includes('png') || f.includes('jpeg'))
+                || layer.formats[0] || 'image/png';
+
+  let tileUrl;
+  if (resourceUrls[layer.id]) {
+    tileUrl = resourceUrls[layer.id]
+      .replace('{TileMatrix}','{z}').replace('{TileRow}','{y}')
+      .replace('{TileCol}','{x}').replace('{Style}',style)
+      .replace('{TileMatrixSet}',tms);
+  } else {
+    tileUrl = buildWMTSTileUrl(kvpUrl || baseUrl, layer.id, style, tms, fmt);
+  }
+
+  const leafletLayer = L.tileLayer(tileUrl, {
+    opacity: 0.9, maxZoom: 20, tms: false,
+    attribution: layer.title, errorTileUrl: ''
+  }).addTo(map);
+
+  overlays.push({id: layer.id, title: layer.title, layer: leafletLayer});
+  renderActiveSlots();
+  setStatus('ok', `已加入：${layer.title}`);
+
+  if (layer.bbox) { try { map.fitBounds(layer.bbox); } catch(_) {} }
+
+  // Auto-switch to layers tab
+  switchTab('layers');
+}
+
+// ── Presets ───────────────────────────────────────────────
+function addXYZOverlay(id, title, url) {
+  if (overlays.some(o => o.id === id)) {
+    setStatus('ok', `「${title}」已在地圖上`); return;
+  }
+  if (overlays.length >= MAX_OVERLAYS) {
+    setStatus('err', `已達上限（${MAX_OVERLAYS} 個）`); return;
+  }
+  const lyr = L.tileLayer(url, {
+    opacity: 0.9, maxZoom: 20, attribution: title, errorTileUrl: ''
+  }).addTo(map);
+  overlays.push({id, title, layer: lyr});
+  renderActiveSlots();
+  setStatus('ok', `已加入：${title}`);
+  switchTab('layers');
+  openSheet();
+}
+
+function loadPreset(key) {
+  switch(key) {
+    case 'nlsc':
+      document.getElementById('urlInput').value = 'https://wmts.nlsc.gov.tw/wmts';
+      loadWMTS();
+      break;
+    case 'nlsc_ortho':
+      addXYZOverlay('PHOTO2','國土測繪・正射影像',
+        'https://wmts.nlsc.gov.tw/wmts/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}');
+      break;
+    case 'nlsc_topo':
+      addXYZOverlay('EMAP','國土測繪・通用版電子地圖',
+        'https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}');
+      break;
+    case 'esri_sat':
+      addXYZOverlay('esri_sat','ESRI 衛星影像',
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+      break;
+    case 'esri_topo':
+      addXYZOverlay('esri_topo','ESRI 地形圖',
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}');
+      break;
+  }
+}
+
+// ── URL input: Enter key ──────────────────────────────────
+document.getElementById('urlInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { loadWMTS(); }
+});
+
+// ── Init ──────────────────────────────────────────────────
+renderActiveSlots();
+</script>
+</body>
+</html>

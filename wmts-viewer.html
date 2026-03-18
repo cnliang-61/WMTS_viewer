@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WMTS 圖資瀏覽器</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3350;
+    --accent: #4f8ef7;
+    --accent2: #7c3aed;
+    --text: #e8ecf4;
+    --muted: #8890a8;
+    --success: #22c55e;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --font: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+  }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Top Bar ── */
+  .topbar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    z-index: 1000;
+  }
+
+  .logo {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .logo-icon {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+
+  .url-input {
+    flex: 1;
+    height: 34px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 12.5px;
+    padding: 0 10px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    transition: border-color 0.2s;
+    outline: none;
+  }
+  .url-input:focus { border-color: var(--accent); }
+  .url-input::placeholder { color: var(--muted); }
+
+  .btn {
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 6px;
+    border: none;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: var(--font);
+    white-space: nowrap;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .btn:active { transform: scale(0.97); }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .btn-primary:hover { opacity: 0.88; }
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { background: var(--border); }
+  .btn-danger {
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    padding: 0 8px;
+    height: 24px;
+    font-size: 11px;
+  }
+  .btn-danger:hover { background: rgba(239,68,68,0.15); }
+
+  /* ── Side Panel ── */
+  .layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .sidebar {
+    width: 300px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .sidebar-header {
+    padding: 10px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .sidebar-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+  }
+
+  .sidebar-body::-webkit-scrollbar { width: 4px; }
+  .sidebar-body::-webkit-scrollbar-track { background: transparent; }
+  .sidebar-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Active Overlay Layers Panel ── */
+  .active-layers-panel {
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+
+  .active-layers-header {
+    padding: 8px 14px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+  }
+  .active-layers-header:hover { color: var(--text); }
+
+  .active-layers-body {
+    padding: 6px 10px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .active-layers-body::-webkit-scrollbar { width: 3px; }
+  .active-layers-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .overlay-slot {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    transition: border-color 0.2s;
+  }
+  .overlay-slot.has-layer { border-color: var(--accent); }
+
+  .overlay-slot-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .slot-num {
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    background: var(--border);
+    font-size: 10px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    color: var(--muted);
+  }
+  .overlay-slot.has-layer .slot-num {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .slot-title {
+    font-size: 12px;
+    font-weight: 600;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--muted);
+  }
+  .overlay-slot.has-layer .slot-title { color: var(--text); }
+
+  .opacity-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .opacity-row input[type=range] {
+    flex: 1;
+    accent-color: var(--accent);
+    height: 3px;
+  }
+  .opacity-pct {
+    min-width: 28px;
+    text-align: right;
+    color: var(--text);
+    font-weight: 600;
+    font-size: 11px;
+  }
+
+  .empty-slot-hint {
+    font-size: 11px;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  .slot-count-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: var(--surface2);
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  /* Layer list */
+  .layer-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .layer-item:hover { border-color: var(--accent); }
+  .layer-item.active {
+    border-color: var(--accent);
+    background: rgba(79,142,247,0.08);
+  }
+
+  .layer-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 3px;
+    word-break: break-all;
+  }
+  .layer-meta {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    margin-top: 4px;
+  }
+  .badge-blue  { background: rgba(79,142,247,0.2); color: #7ab3ff; }
+  .badge-green { background: rgba(34,197,94,0.2);  color: #4ade80; }
+  .badge-amber { background: rgba(245,158,11,0.2); color: #fcd34d; }
+  .badge-purple{ background: rgba(124,58,237,0.2); color: #c084fc; }
+
+  /* ── Map area ── */
+  .map-wrap {
+    flex: 1;
+    position: relative;
+  }
+  #map {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Status bar */
+  .statusbar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: rgba(15,17,23,0.88);
+    backdrop-filter: blur(4px);
+    border-top: 1px solid var(--border);
+    padding: 5px 14px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--muted);
+    z-index: 500;
+  }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot-idle    { background: var(--muted); }
+  .dot-loading { background: var(--warn); animation: pulse 1s infinite; }
+  .dot-ok      { background: var(--success); }
+  .dot-err     { background: var(--danger); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .status-msg { flex: 1; }
+
+  /* Loading overlay */
+  .loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(15,17,23,0.7);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 600;
+    gap: 14px;
+  }
+  .loading-overlay.show { display: flex; }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 13px; color: var(--muted); }
+
+  /* Info panel */
+  .info-panel {
+    position: absolute;
+    top: 10px; right: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    min-width: 220px;
+    max-width: 280px;
+    z-index: 500;
+    font-size: 12px;
+    display: none;
+  }
+  .info-panel.show { display: block; }
+  .info-panel h4 { font-size: 13px; margin-bottom: 8px; color: var(--accent); }
+  .info-row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .info-key { color: var(--muted); flex-shrink: 0; }
+  .info-val { text-align: right; word-break: break-all; }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 24px 12px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .empty-icon { font-size: 28px; margin-bottom: 8px; }
+
+  /* Preset section */
+  .preset-list { margin-top: 2px; }
+  .preset-item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border: 1px solid transparent;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+  }
+  .preset-item:hover { background: var(--surface2); border-color: var(--border); }
+  .preset-name { font-weight: 500; }
+  .preset-src  { font-size: 10px; color: var(--muted); }
+
+  .section-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 2px 4px;
+  }
+
+  /* Leaflet overrides */
+  .leaflet-control-zoom a {
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+  }
+  .leaflet-control-zoom a:hover { background: var(--surface2) !important; }
+  .leaflet-bar { border: 1px solid var(--border) !important; box-shadow: none !important; }
+  .leaflet-control-attribution {
+    background: rgba(15,17,23,0.75) !important;
+    color: var(--muted) !important;
+    font-size: 10px !important;
+  }
+  .leaflet-control-attribution a { color: var(--accent) !important; }
+
+  /* Max layers warning */
+  .max-warn {
+    font-size: 11px;
+    color: var(--warn);
+    padding: 4px 6px;
+    background: rgba(245,158,11,0.1);
+    border-radius: 4px;
+    border: 1px solid rgba(245,158,11,0.3);
+    display: none;
+  }
+  .max-warn.show { display: block; }
+
+  .chevron { transition: transform 0.2s; display: inline-block; }
+  .chevron.open { transform: rotate(90deg); }
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">🗺</div>
+    WMTS Viewer
+  </div>
+  <input class="url-input" id="urlInput" type="text"
+    placeholder="輸入 WMTS GetCapabilities 網址，例如：https://wmts.nlsc.gov.tw/wmts"
+    value="https://wmts.nlsc.gov.tw/wmts"/>
+  <button class="btn btn-primary" onclick="loadWMTS()">載入圖資</button>
+  <button class="btn btn-secondary" onclick="clearAllOverlays()">清除全部</button>
+</div>
+
+<!-- Layout -->
+<div class="layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+
+    <!-- Active overlay layers panel -->
+    <div class="active-layers-panel">
+      <div class="active-layers-header" onclick="toggleActivePanel()">
+        <span>
+          <span class="chevron open" id="activePanelChevron">▶</span>
+          &nbsp;已開啟的疊加圖層
+        </span>
+        <span class="slot-count-badge" id="slotCountBadge">0 / 5</span>
+      </div>
+      <div class="active-layers-body" id="activeLayers">
+        <!-- slots rendered by JS -->
+      </div>
+    </div>
+
+    <!-- Scrollable sidebar content -->
+    <div class="sidebar-body" id="sidebarBody">
+
+      <div id="maxWarn" class="max-warn">
+        ⚠️ 已達上限（5 個圖層），請先移除現有圖層
+      </div>
+
+      <div class="section-title">可用圖層</div>
+      <div id="layerList">
+        <div class="empty-state">
+          <div class="empty-icon">📡</div>
+          請輸入 WMTS 網址<br>並點擊「載入圖資」
+        </div>
+      </div>
+
+      <!-- Presets -->
+      <div class="section-title" style="margin-top:12px;">常用圖資</div>
+      <div class="preset-list">
+        <div class="preset-item" onclick="loadPreset('nlsc')">
+          <div>
+            <div class="preset-name">國土測繪中心</div>
+            <div class="preset-src">nlsc.gov.tw</div>
+          </div>
+          <span class="badge badge-green">台灣</span>
+        </div>
+        <div class="preset-item" onclick="loadPreset('nlsc_ortho')">
+          <div>
+            <div class="preset-name">國土測繪 - 正射影像</div>
+            <div class="preset-src">wmts.nlsc.gov.tw/PHOTO2</div>
+          </div>
+          <span class="badge badge-amber">台灣</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div class="map-wrap">
+    <div id="map"></div>
+
+    <!-- Loading overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loadingText">正在解析 GetCapabilities...</div>
+    </div>
+
+    <!-- Info panel -->
+    <div class="info-panel" id="infoPanel">
+      <h4 id="infoTitle">圖層資訊</h4>
+      <div id="infoContent"></div>
+      <div style="margin-top:8px;text-align:right">
+        <button class="btn btn-danger" onclick="document.getElementById('infoPanel').classList.remove('show')">關閉</button>
+      </div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="statusbar">
+      <div class="status-dot dot-idle" id="statusDot"></div>
+      <div class="status-msg" id="statusMsg">就緒 — 底圖：OpenStreetMap</div>
+      <div id="coordDisplay">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Constants ─────────────────────────────────────────────
+const MAX_OVERLAYS = 5;
+const SLOT_COLORS  = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#c084fc'];
+
+// ── Map init ──────────────────────────────────────────────
+const map = L.map('map', {
+  center: [23.97, 120.97],
+  zoom: 8,
+  zoomControl: true,
+  attributionControl: true,
+});
+
+// OSM as basemap
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 19
+}).addTo(map);
+
+// Coord display
+map.on('mousemove', e => {
+  document.getElementById('coordDisplay').textContent =
+    `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+});
+
+// ── State ─────────────────────────────────────────────────
+// overlays: array of { id, title, layer } (up to MAX_OVERLAYS)
+let overlays = [];
+let currentLayerInfo = null;
+
+// ── Slot UI rendering ─────────────────────────────────────
+function renderActiveSlots() {
+  const container = document.getElementById('activeLayers');
+  container.innerHTML = '';
+
+  for (let i = 0; i < MAX_OVERLAYS; i++) {
+    const ov = overlays[i];
+    const slot = document.createElement('div');
+    slot.className = 'overlay-slot' + (ov ? ' has-layer' : '');
+    slot.id = 'slot-' + i;
+
+    const color = SLOT_COLORS[i];
+
+    if (ov) {
+      const opacity = Math.round(ov.layer.options.opacity * 100);
+      slot.innerHTML = `
+        <div class="overlay-slot-header">
+          <div class="slot-num" style="background:${color}">${i + 1}</div>
+          <div class="slot-title" title="${ov.title}">${ov.title}</div>
+          <button class="btn btn-danger" onclick="removeOverlay(${i})" title="移除此圖層">✕</button>
+        </div>
+        <div class="opacity-row">
+          <span>透明</span>
+          <input type="range" min="0" max="100" value="${opacity}"
+            oninput="updateSlotOpacity(${i}, this.value)" style="accent-color:${color}"/>
+          <span class="opacity-pct" id="opct-${i}">${opacity}%</span>
+        </div>`;
+    } else {
+      slot.innerHTML = `
+        <div class="overlay-slot-header">
+          <div class="slot-num">${i + 1}</div>
+          <div class="slot-title empty-slot-hint">（空槽位）</div>
+        </div>`;
+    }
+
+    container.appendChild(slot);
+  }
+
+  // Badge
+  document.getElementById('slotCountBadge').textContent = `${overlays.length} / ${MAX_OVERLAYS}`;
+
+  // Max warn
+  document.getElementById('maxWarn').classList.toggle('show', overlays.length >= MAX_OVERLAYS);
+}
+
+function updateSlotOpacity(slotIdx, val) {
+  if (overlays[slotIdx]) {
+    overlays[slotIdx].layer.setOpacity(val / 100);
+    document.getElementById('opct-' + slotIdx).textContent = val + '%';
+  }
+}
+
+function removeOverlay(slotIdx) {
+  if (overlays[slotIdx]) {
+    map.removeLayer(overlays[slotIdx].layer);
+    overlays.splice(slotIdx, 1);
+    renderActiveSlots();
+    setStatus('ok', overlays.length > 0
+      ? `已移除圖層，目前 ${overlays.length} 個圖層`
+      : '已清除所有疊加圖層');
+  }
+}
+
+function clearAllOverlays() {
+  overlays.forEach(ov => map.removeLayer(ov.layer));
+  overlays = [];
+  renderActiveSlots();
+  document.getElementById('layerList').innerHTML =
+    '<div class="empty-state"><div class="empty-icon">📡</div>請輸入 WMTS 網址<br>並點擊「載入圖資」</div>';
+  document.getElementById('infoPanel').classList.remove('show');
+  setStatus('idle', '已清除所有疊加圖層');
+}
+
+function toggleActivePanel() {
+  const body = document.getElementById('activeLayers');
+  const chev = document.getElementById('activePanelChevron');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  chev.classList.toggle('open', !open);
+}
+
+// ── Status helpers ────────────────────────────────────────
+function setStatus(type, msg) {
+  const dot = document.getElementById('statusDot');
+  dot.className = 'status-dot dot-' + type;
+  document.getElementById('statusMsg').textContent = msg;
+}
+
+function showLoading(show, msg) {
+  const el = document.getElementById('loadingOverlay');
+  el.classList.toggle('show', show);
+  if (msg) document.getElementById('loadingText').textContent = msg;
+}
+
+// ── Parse XML helpers ─────────────────────────────────────
+function getText(el, tag) {
+  const node = el.querySelector(tag);
+  return node ? node.textContent.trim() : '';
+}
+
+// ── WMTS Capabilities parser ──────────────────────────────
+function parseCapabilities(xmlText) {
+  const parser = new DOMParser();
+  const xml    = parser.parseFromString(xmlText, 'text/xml');
+  const layers = [];
+
+  xml.querySelectorAll('Layer').forEach(layer => {
+    const id = getText(layer, 'Identifier') || getText(layer, 'ows\\:Identifier');
+    if (!id) return;
+
+    const title    = getText(layer, 'Title')    || getText(layer, 'ows\\:Title')    || id;
+    const abstract = getText(layer, 'Abstract') || getText(layer, 'ows\\:Abstract') || '';
+    const formats  = [...layer.querySelectorAll('Format')].map(f => f.textContent.trim());
+    const tmsLinks = [...layer.querySelectorAll('TileMatrixSetLink')].map(tms =>
+      getText(tms, 'TileMatrixSet') || getText(tms, 'ows\\:TileMatrixSet'));
+    const styles   = [...layer.querySelectorAll('Style')].map(s =>
+      getText(s, 'Identifier') || getText(s, 'ows\\:Identifier'));
+
+    let bbox = null;
+    const bboxEl = layer.querySelector('WGS84BoundingBox') || layer.querySelector('BoundingBox');
+    if (bboxEl) {
+      const lc = getText(bboxEl, 'LowerCorner');
+      const uc = getText(bboxEl, 'UpperCorner');
+      if (lc && uc) {
+        const [minX, minY] = lc.split(' ').map(Number);
+        const [maxX, maxY] = uc.split(' ').map(Number);
+        bbox = [[minY, minX], [maxY, maxX]];
+      }
+    }
+    layers.push({ id, title, abstract, formats, tmsLinks, styles, bbox });
+  });
+
+  const resourceUrls = {};
+  xml.querySelectorAll('ResourceURL').forEach(r => {
+    const lyr = r.closest('Layer');
+    if (!lyr) return;
+    const lyrId = getText(lyr, 'Identifier') || getText(lyr, 'ows\\:Identifier');
+    if (!resourceUrls[lyrId]) resourceUrls[lyrId] = r.getAttribute('template');
+  });
+
+  const getCapOp = xml.querySelector('OperationsMetadata Operation[name="GetTile"]') ||
+                   xml.querySelector('Operation[name="GetTile"]');
+  let kvpUrl = '';
+  if (getCapOp) {
+    const getEl = getCapOp.querySelector('Get');
+    if (getEl) kvpUrl = getEl.getAttribute('xlink:href') || '';
+  }
+
+  return { layers, resourceUrls, kvpUrl };
+}
+
+// ── Build WMTS tile URL ───────────────────────────────────
+function buildWMTSTileUrl(baseUrl, layerId, style, tileMatrixSet, format) {
+  const url = baseUrl.split('?')[0].replace(/\/+$/, '');
+  if (url.includes('{TileMatrix}') || url.includes('{z}')) return url;
+
+  const mime = format || 'image/png';
+  const sty  = style  || 'default';
+  const tms  = tileMatrixSet || 'GoogleMapsCompatible';
+
+  return `${url}?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0` +
+         `&LAYER=${encodeURIComponent(layerId)}` +
+         `&STYLE=${encodeURIComponent(sty)}` +
+         `&TILEMATRIXSET=${encodeURIComponent(tms)}` +
+         `&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}` +
+         `&FORMAT=${encodeURIComponent(mime)}`;
+}
+
+// ── Fetch via CORS proxy ──────────────────────────────────
+async function fetchCapabilities(url) {
+  try {
+    const r = await fetch(url, { mode: 'cors', signal: AbortSignal.timeout(10000) });
+    if (r.ok) return await r.text();
+  } catch (_) {}
+
+  const proxies = [
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+  ];
+  for (const proxy of proxies) {
+    try {
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(12000) });
+      if (r.ok) return await r.text();
+    } catch (_) {}
+  }
+  throw new Error('無法取得 Capabilities，請確認網址或網路連線');
+}
+
+// ── Load WMTS ─────────────────────────────────────────────
+async function loadWMTS() {
+  let url = document.getElementById('urlInput').value.trim();
+  if (!url) { alert('請輸入 WMTS 網址'); return; }
+
+  const hasQuery = url.includes('?');
+  const capUrl = hasQuery
+    ? (url.toLowerCase().includes('getcapabilities') ? url
+        : url + '&SERVICE=WMTS&REQUEST=GetCapabilities&VERSION=1.0.0')
+    : url + '?SERVICE=WMTS&REQUEST=GetCapabilities&VERSION=1.0.0';
+
+  showLoading(true, '正在取得 GetCapabilities...');
+  setStatus('loading', '連線中...');
+
+  try {
+    const xmlText = await fetchCapabilities(capUrl);
+    showLoading(true, '正在解析圖層資訊...');
+    const { layers, resourceUrls, kvpUrl } = parseCapabilities(xmlText);
+
+    if (layers.length === 0)
+      throw new Error('未找到任何圖層，請確認 WMTS 服務回應格式');
+
+    setStatus('ok', `成功載入 ${layers.length} 個圖層`);
+    renderLayerList(layers, url, resourceUrls, kvpUrl);
+
+  } catch (err) {
+    setStatus('err', '載入失敗：' + err.message);
+    document.getElementById('layerList').innerHTML =
+      `<div class="empty-state"><div class="empty-icon">⚠️</div>${err.message}</div>`;
+  } finally {
+    showLoading(false);
+  }
+}
+
+// ── Render layer list ─────────────────────────────────────
+function renderLayerList(layers, baseUrl, resourceUrls, kvpUrl) {
+  const list = document.getElementById('layerList');
+  list.innerHTML = '';
+
+  layers.forEach((layer, i) => {
+    const item = document.createElement('div');
+    const alreadyLoaded = overlays.some(o => o.id === layer.id);
+    item.className = 'layer-item' + (alreadyLoaded ? ' active' : '');
+    item.id = 'li-' + i;
+
+    const fmt = layer.formats[0] || 'image/png';
+    const tms = layer.tmsLinks[0] || 'GoogleMapsCompatible';
+
+    item.innerHTML = `
+      <div class="layer-title">${layer.title}</div>
+      <div class="layer-meta">ID: ${layer.id}</div>
+      <div>
+        <span class="badge badge-blue">${fmt.split('/')[1] || fmt}</span>
+        <span class="badge badge-amber">${tms}</span>
+        ${alreadyLoaded ? '<span class="badge badge-green">已載入</span>' : ''}
+      </div>`;
+
+    item.onclick = () => {
+      if (overlays.length >= MAX_OVERLAYS) {
+        setStatus('err', `已達上限（${MAX_OVERLAYS} 個圖層），請先移除現有圖層`);
+        return;
+      }
+      if (overlays.some(o => o.id === layer.id)) {
+        setStatus('ok', `「${layer.title}」已在地圖上`);
+        return;
+      }
+      addOverlayLayer(layer, baseUrl, resourceUrls, kvpUrl);
+      // Update active state in list
+      document.querySelectorAll('.layer-item').forEach(e => e.classList.remove('active'));
+      item.classList.add('active');
+      item.querySelector('.badge-amber').insertAdjacentHTML('afterend',
+        ' <span class="badge badge-green">已載入</span>');
+    };
+
+    list.appendChild(item);
+  });
+}
+
+// ── Add overlay layer ─────────────────────────────────────
+function addOverlayLayer(layer, baseUrl, resourceUrls, kvpUrl) {
+  const style = layer.styles[0] || 'default';
+  const tms   = layer.tmsLinks[0] || 'GoogleMapsCompatible';
+  const fmt   = layer.formats.find(f => f.includes('png') || f.includes('jpeg'))
+                || layer.formats[0] || 'image/png';
+
+  let tileUrl;
+  if (resourceUrls[layer.id]) {
+    tileUrl = resourceUrls[layer.id]
+      .replace('{TileMatrix}', '{z}')
+      .replace('{TileRow}', '{y}')
+      .replace('{TileCol}', '{x}')
+      .replace('{Style}', style)
+      .replace('{TileMatrixSet}', tms);
+  } else {
+    tileUrl = buildWMTSTileUrl(kvpUrl || baseUrl, layer.id, style, tms, fmt);
+  }
+
+  const leafletLayer = L.tileLayer(tileUrl, {
+    opacity: 0.9,
+    maxZoom: 20,
+    tms: false,
+    attribution: layer.title,
+    errorTileUrl: '',
+  }).addTo(map);
+
+  overlays.push({ id: layer.id, title: layer.title, layer: leafletLayer });
+  renderActiveSlots();
+  setStatus('ok', `已加入：${layer.title}（${overlays.length}/${MAX_OVERLAYS}）`);
+
+  currentLayerInfo = layer;
+
+  if (layer.bbox) {
+    try { map.fitBounds(layer.bbox); } catch (_) {}
+  }
+
+  showInfoPanel(layer);
+}
+
+// ── Info panel ────────────────────────────────────────────
+function showInfoPanel(layer) {
+  const panel = document.getElementById('infoPanel');
+  document.getElementById('infoTitle').textContent = layer.title;
+  document.getElementById('infoContent').innerHTML = `
+    <div class="info-row"><span class="info-key">識別碼</span><span class="info-val">${layer.id}</span></div>
+    <div class="info-row"><span class="info-key">格式</span><span class="info-val">${layer.formats.join(', ') || '—'}</span></div>
+    <div class="info-row"><span class="info-key">TileMatrixSet</span><span class="info-val">${layer.tmsLinks.join(', ') || '—'}</span></div>
+    <div class="info-row"><span class="info-key">樣式</span><span class="info-val">${layer.styles.join(', ') || 'default'}</span></div>
+    ${layer.abstract ? `<div style="margin-top:8px;font-size:11px;color:var(--muted);line-height:1.5">${layer.abstract.substring(0, 120)}</div>` : ''}
+  `;
+  panel.classList.add('show');
+}
+
+// ── Presets ───────────────────────────────────────────────
+function loadPreset(key) {
+  if (key === 'nlsc') {
+    document.getElementById('urlInput').value = 'https://wmts.nlsc.gov.tw/wmts';
+    loadWMTS();
+  } else if (key === 'nlsc_ortho') {
+    document.getElementById('urlInput').value = 'https://wmts.nlsc.gov.tw/wmts/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}';
+    // Directly add as XYZ overlay
+    if (overlays.length >= MAX_OVERLAYS) {
+      setStatus('err', `已達上限（${MAX_OVERLAYS} 個圖層）`);
+      return;
+    }
+    const tileUrl = 'https://wmts.nlsc.gov.tw/wmts/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}';
+    const leafletLayer = L.tileLayer(tileUrl, {
+      opacity: 0.9, maxZoom: 20, attribution: '國土測繪正射影像', errorTileUrl: ''
+    }).addTo(map);
+    overlays.push({ id: 'PHOTO2', title: '國土測繪 - 正射影像', layer: leafletLayer });
+    renderActiveSlots();
+    setStatus('ok', `已加入：國土測繪正射影像（${overlays.length}/${MAX_OVERLAYS}）`);
+  }
+}
+
+// ── Enter key ─────────────────────────────────────────────
+document.getElementById('urlInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadWMTS();
+});
+
+// ── Init slots ────────────────────────────────────────────
+renderActiveSlots();
+</script>
+</body>
+</html>
