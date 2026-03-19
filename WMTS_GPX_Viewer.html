@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WMTS 圖資瀏覽器</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:      #0f1117;
+    --surface: #1a1d27;
+    --surface2:#22263a;
+    --border:  #2e3350;
+    --accent:  #4f8ef7;
+    --accent2: #7c3aed;
+    --text:    #e8ecf4;
+    --muted:   #8890a8;
+    --success: #22c55e;
+    --warn:    #f59e0b;
+    --danger:  #ef4444;
+    --gpx:     #ff6b35;
+    --font:    'Segoe UI','Microsoft JhengHei',sans-serif;
+  }
+
+  body { font-family:var(--font); background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+  /* ── Top Bar ── */
+  .topbar { background:var(--surface); border-bottom:1px solid var(--border); padding:0 16px; height:52px; display:flex; align-items:center; gap:12px; flex-shrink:0; z-index:1000; }
+  .logo { font-size:15px; font-weight:700; letter-spacing:0.5px; color:var(--accent); white-space:nowrap; display:flex; align-items:center; gap:6px; }
+  .logo-icon { width:28px; height:28px; background:linear-gradient(135deg,var(--accent),var(--accent2)); border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:14px; }
+  .url-input { flex:1; height:34px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12.5px; padding:0 10px; font-family:'Consolas','Courier New',monospace; transition:border-color 0.2s; outline:none; }
+  .url-input:focus { border-color:var(--accent); }
+  .url-input::placeholder { color:var(--muted); }
+  .btn { height:34px; padding:0 14px; border-radius:6px; border:none; font-size:13px; cursor:pointer; font-family:var(--font); white-space:nowrap; transition:opacity 0.15s,transform 0.1s; }
+  .btn:active { transform:scale(0.97); }
+  .btn-primary { background:var(--accent); color:#fff; font-weight:600; }
+  .btn-primary:hover { opacity:0.88; }
+  .btn-secondary { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
+  .btn-secondary:hover { background:var(--border); }
+  .btn-danger { background:transparent; color:var(--danger); border:1px solid var(--danger); padding:0 8px; height:24px; font-size:11px; }
+  .btn-danger:hover { background:rgba(239,68,68,0.15); }
+  .btn-gpx { background:var(--gpx); color:#fff; font-weight:600; display:flex; align-items:center; gap:5px; }
+  .btn-gpx:hover { opacity:0.88; }
+
+  /* ── Layout ── */
+  .layout { display:flex; flex:1; overflow:hidden; }
+  .sidebar { width:300px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow:hidden; }
+  .sidebar-body { flex:1; overflow-y:auto; padding:10px; }
+  .sidebar-body::-webkit-scrollbar { width:4px; }
+  .sidebar-body::-webkit-scrollbar-track { background:transparent; }
+  .sidebar-body::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+  /* ── Active Overlays Panel ── */
+  .active-layers-panel { flex-shrink:0; border-bottom:1px solid var(--border); background:var(--bg); }
+  .active-layers-header { padding:8px 14px; font-size:10px; font-weight:700; letter-spacing:0.8px; text-transform:uppercase; color:var(--muted); display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none; }
+  .active-layers-header:hover { color:var(--text); }
+  .active-layers-body { padding:6px 10px 8px; display:flex; flex-direction:column; gap:6px; max-height:200px; overflow-y:auto; }
+  .active-layers-body::-webkit-scrollbar { width:3px; }
+  .active-layers-body::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .overlay-slot { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; transition:border-color 0.2s; }
+  .overlay-slot.has-layer { border-color:var(--accent); }
+  .overlay-slot-header { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .slot-num { width:18px; height:18px; border-radius:4px; background:var(--border); font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--muted); }
+  .overlay-slot.has-layer .slot-num { background:var(--accent); color:#fff; }
+  .slot-title { font-size:12px; font-weight:600; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--muted); }
+  .overlay-slot.has-layer .slot-title { color:var(--text); }
+  .opacity-row { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
+  .opacity-row input[type=range] { flex:1; accent-color:var(--accent); height:3px; }
+  .opacity-pct { min-width:28px; text-align:right; color:var(--text); font-weight:600; font-size:11px; }
+  .empty-slot-hint { font-size:11px; color:var(--muted); font-style:italic; }
+  .slot-count-badge { font-size:10px; padding:1px 6px; border-radius:10px; background:var(--surface2); color:var(--muted); font-weight:600; }
+
+  /* ── GPX Panel ── */
+  .gpx-panel { flex-shrink:0; border-bottom:1px solid var(--border); background:rgba(255,107,53,0.03); }
+  .gpx-panel-header { padding:8px 14px; font-size:10px; font-weight:700; letter-spacing:0.8px; text-transform:uppercase; color:var(--gpx); display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none; border-top:1px solid rgba(255,107,53,0.15); }
+  .gpx-panel-header:hover { opacity:0.82; }
+  .gpx-panel-body { padding:8px 10px; display:flex; flex-direction:column; gap:6px; max-height:320px; overflow-y:auto; }
+  .gpx-panel-body::-webkit-scrollbar { width:3px; }
+  .gpx-panel-body::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+  .gpx-dropzone { border:2px dashed rgba(255,107,53,0.3); border-radius:8px; padding:14px 10px; text-align:center; cursor:pointer; transition:border-color 0.2s,background 0.2s; font-size:12px; color:var(--muted); display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .gpx-dropzone:hover,.gpx-dropzone.drag-over { border-color:var(--gpx); background:rgba(255,107,53,0.07); color:var(--gpx); }
+  .gpx-dropzone-icon { font-size:20px; }
+
+  .gpx-track-card { background:var(--surface2); border:1px solid rgba(255,107,53,0.25); border-radius:8px; padding:9px 11px; }
+  .gpx-track-header { display:flex; align-items:center; gap:7px; margin-bottom:5px; }
+  .gpx-color-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .gpx-track-name { font-size:12px; font-weight:600; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text); }
+  .gpx-track-stats { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:7px; }
+  .gpx-stat { font-size:10px; color:var(--muted); background:var(--bg); border-radius:4px; padding:2px 6px; display:flex; align-items:center; gap:3px; }
+  .gpx-stat strong { color:var(--text); }
+  .gpx-track-actions { display:flex; gap:5px; }
+  .btn-gpx-fit { flex:1; height:24px; border-radius:5px; border:1px solid rgba(255,107,53,0.4); background:rgba(255,107,53,0.1); color:var(--gpx); font-size:11px; cursor:pointer; font-family:var(--font); }
+  .btn-gpx-fit:hover { background:rgba(255,107,53,0.2); }
+  .btn-gpx-del { height:24px; padding:0 8px; border-radius:5px; border:1px solid rgba(239,68,68,0.35); background:transparent; color:var(--danger); font-size:11px; cursor:pointer; font-family:var(--font); }
+  .btn-gpx-del:hover { background:rgba(239,68,68,0.15); }
+  .gpx-count-badge { font-size:10px; padding:1px 6px; border-radius:10px; background:rgba(255,107,53,0.12); color:var(--gpx); font-weight:600; }
+
+  /* ── Layer list ── */
+  .layer-item { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:8px; cursor:pointer; transition:border-color 0.2s,background 0.2s; }
+  .layer-item:hover { border-color:var(--accent); }
+  .layer-item.active { border-color:var(--accent); background:rgba(79,142,247,0.08); }
+  .layer-title { font-size:13px; font-weight:600; margin-bottom:3px; word-break:break-all; }
+  .layer-meta { font-size:11px; color:var(--muted); line-height:1.5; }
+  .badge { display:inline-block; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:600; margin-top:4px; }
+  .badge-blue  { background:rgba(79,142,247,0.2); color:#7ab3ff; }
+  .badge-green { background:rgba(34,197,94,0.2);  color:#4ade80; }
+  .badge-amber { background:rgba(245,158,11,0.2); color:#fcd34d; }
+
+  /* ── Map ── */
+  .map-wrap { flex:1; position:relative; }
+  #map { width:100%; height:100%; }
+  .statusbar { position:absolute; bottom:0; left:0; right:0; background:rgba(15,17,23,0.88); backdrop-filter:blur(4px); border-top:1px solid var(--border); padding:5px 14px; display:flex; align-items:center; gap:16px; font-size:11px; color:var(--muted); z-index:500; }
+  .status-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .dot-idle    { background:var(--muted); }
+  .dot-loading { background:var(--warn); animation:pulse 1s infinite; }
+  .dot-ok      { background:var(--success); }
+  .dot-err     { background:var(--danger); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .status-msg { flex:1; }
+  .loading-overlay { position:absolute; inset:0; background:rgba(15,17,23,0.7); display:none; flex-direction:column; align-items:center; justify-content:center; z-index:600; gap:14px; }
+  .loading-overlay.show { display:flex; }
+  .spinner { width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; }
+  @keyframes spin { to{transform:rotate(360deg);} }
+  .loading-text { font-size:13px; color:var(--muted); }
+  .info-panel { position:absolute; top:10px; right:10px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px; min-width:220px; max-width:280px; z-index:500; font-size:12px; display:none; }
+  .info-panel.show { display:block; }
+  .info-panel h4 { font-size:13px; margin-bottom:8px; color:var(--accent); }
+  .info-row { display:flex; justify-content:space-between; gap:8px; margin-bottom:4px; }
+  .info-key { color:var(--muted); flex-shrink:0; }
+  .info-val { text-align:right; word-break:break-all; }
+  .empty-state { text-align:center; padding:24px 12px; color:var(--muted); font-size:12px; line-height:1.6; }
+  .empty-icon { font-size:28px; margin-bottom:8px; }
+  .preset-list { margin-top:2px; }
+  .preset-item { padding:8px 10px; border-radius:6px; font-size:12px; cursor:pointer; transition:background 0.15s; border:1px solid transparent; display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .preset-item:hover { background:var(--surface2); border-color:var(--border); }
+  .preset-name { font-weight:500; }
+  .preset-src  { font-size:10px; color:var(--muted); }
+  .section-title { font-size:10px; font-weight:700; letter-spacing:0.8px; text-transform:uppercase; color:var(--muted); padding:8px 2px 4px; }
+  .max-warn { font-size:11px; color:var(--warn); padding:4px 6px; background:rgba(245,158,11,0.1); border-radius:4px; border:1px solid rgba(245,158,11,0.3); display:none; margin-bottom:6px; }
+  .max-warn.show { display:block; }
+  .chevron { transition:transform 0.2s; display:inline-block; }
+  .chevron.open { transform:rotate(90deg); }
+
+  /* Leaflet */
+  .leaflet-control-zoom a { background:var(--surface) !important; color:var(--text) !important; border-color:var(--border) !important; }
+  .leaflet-control-zoom a:hover { background:var(--surface2) !important; }
+  .leaflet-bar { border:1px solid var(--border) !important; box-shadow:none !important; }
+  .leaflet-control-attribution { background:rgba(15,17,23,0.75) !important; color:var(--muted) !important; font-size:10px !important; }
+  .leaflet-control-attribution a { color:var(--accent) !important; }
+
+  /* GPX popup */
+  .leaflet-popup-content-wrapper { background:var(--surface) !important; border:1px solid var(--border) !important; border-radius:8px !important; color:var(--text) !important; box-shadow:0 4px 20px rgba(0,0,0,0.5) !important; font-family:var(--font) !important; font-size:12px !important; }
+  .leaflet-popup-tip { background:var(--surface) !important; }
+  .leaflet-popup-close-button { color:var(--muted) !important; }
+  .gpx-popup-title { font-weight:700; font-size:13px; margin-bottom:6px; color:var(--gpx); }
+  .gpx-popup-row { display:flex; justify-content:space-between; gap:10px; margin-bottom:3px; }
+  .gpx-popup-key { color:var(--muted); }
+  .gpx-popup-val { font-weight:600; }
+
+  #gpxFileInput { display:none; }
+</style>
+</head>
+<body>
+
+<input type="file" id="gpxFileInput" accept=".gpx" multiple onchange="handleGpxFiles(this.files)">
+
+<!-- Top Bar -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">🗺</div>
+    WMTS Viewer
+  </div>
+  <input class="url-input" id="urlInput" type="text"
+    placeholder="輸入 WMTS GetCapabilities 網址，例如：https://wmts.nlsc.gov.tw/wmts"
+    value="https://wmts.nlsc.gov.tw/wmts"/>
+  <button class="btn btn-primary" onclick="loadWMTS()">載入圖資</button>
+  <button class="btn btn-gpx" onclick="document.getElementById('gpxFileInput').click()">📍 載入 GPX</button>
+  <button class="btn btn-secondary" onclick="clearAllOverlays()">清除全部</button>
+</div>
+
+<!-- Layout -->
+<div class="layout">
+  <div class="sidebar">
+
+    <!-- Active overlay layers -->
+    <div class="active-layers-panel">
+      <div class="active-layers-header" onclick="toggleActivePanel()">
+        <span><span class="chevron open" id="activePanelChevron">▶</span>&nbsp;已開啟的疊加圖層</span>
+        <span class="slot-count-badge" id="slotCountBadge">0 / 5</span>
+      </div>
+      <div class="active-layers-body" id="activeLayers"></div>
+    </div>
+
+    <!-- GPX Panel -->
+    <div class="gpx-panel">
+      <div class="gpx-panel-header" onclick="toggleGpxPanel()">
+        <span><span class="chevron open" id="gpxPanelChevron">▶</span>&nbsp;GPX 軌跡</span>
+        <span class="gpx-count-badge" id="gpxCountBadge">0 個軌跡</span>
+      </div>
+      <div class="gpx-panel-body" id="gpxPanelBody">
+        <div class="gpx-dropzone" id="gpxDropzone"
+          onclick="document.getElementById('gpxFileInput').click()"
+          ondragover="handleDragOver(event)"
+          ondragleave="handleDragLeave(event)"
+          ondrop="handleDrop(event)">
+          <div class="gpx-dropzone-icon">📂</div>
+          <div>拖曳 GPX 檔至此，或點擊選取</div>
+          <div style="font-size:10px;opacity:0.6">支援同時載入多個檔案</div>
+        </div>
+        <div id="gpxTrackList"></div>
+      </div>
+    </div>
+
+    <!-- Available layers + presets -->
+    <div class="sidebar-body">
+      <div id="maxWarn" class="max-warn">⚠️ 已達上限（5 個圖層），請先移除現有圖層</div>
+      <div class="section-title">可用圖層</div>
+      <div id="layerList">
+        <div class="empty-state"><div class="empty-icon">📡</div>請輸入 WMTS 網址<br>並點擊「載入圖資」</div>
+      </div>
+      <div class="section-title" style="margin-top:12px;">常用圖資</div>
+      <div class="preset-list">
+        <div class="preset-item" onclick="loadPreset('nlsc')">
+          <div><div class="preset-name">國土測繪中心</div><div class="preset-src">nlsc.gov.tw</div></div>
+          <span class="badge badge-green">台灣</span>
+        </div>
+        <div class="preset-item" onclick="loadPreset('nlsc_ortho')">
+          <div><div class="preset-name">國土測繪 - 正射影像</div><div class="preset-src">wmts.nlsc.gov.tw/PHOTO2</div></div>
+          <span class="badge badge-amber">台灣</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div class="map-wrap">
+    <div id="map"></div>
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loadingText">正在解析...</div>
+    </div>
+    <div class="info-panel" id="infoPanel">
+      <h4 id="infoTitle">圖層資訊</h4>
+      <div id="infoContent"></div>
+      <div style="margin-top:8px;text-align:right">
+        <button class="btn btn-danger" onclick="document.getElementById('infoPanel').classList.remove('show')">關閉</button>
+      </div>
+    </div>
+    <div class="statusbar">
+      <div class="status-dot dot-idle" id="statusDot"></div>
+      <div class="status-msg" id="statusMsg">就緒 — 底圖：OpenStreetMap</div>
+      <div id="coordDisplay">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+const MAX_OVERLAYS = 5;
+const SLOT_COLORS  = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#c084fc'];
+const GPX_COLORS   = ['#ff6b35','#ffd166','#06d6a0','#118ab2','#e040fb','#f72585','#4cc9f0'];
+
+// ── Map ───────────────────────────────────────
+const map = L.map('map', { center:[23.97,120.97], zoom:8 });
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom:19
+}).addTo(map);
+map.on('mousemove', e => {
+  document.getElementById('coordDisplay').textContent =
+    `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+});
+
+// ── State ─────────────────────────────────────
+let overlays      = [];
+let gpxTracks     = [];
+let gpxColorIndex = 0;
+
+// ── Status ────────────────────────────────────
+function setStatus(type, msg) {
+  document.getElementById('statusDot').className = 'status-dot dot-' + type;
+  document.getElementById('statusMsg').textContent = msg;
+}
+function showLoading(show, msg) {
+  document.getElementById('loadingOverlay').classList.toggle('show', show);
+  if (msg) document.getElementById('loadingText').textContent = msg;
+}
+
+// ══════════════════════════════════════════════
+//  GPX
+// ══════════════════════════════════════════════
+
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('gpxDropzone').classList.add('drag-over');
+}
+function handleDragLeave() {
+  document.getElementById('gpxDropzone').classList.remove('drag-over');
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('gpxDropzone').classList.remove('drag-over');
+  const files = [...e.dataTransfer.files].filter(f => f.name.toLowerCase().endsWith('.gpx'));
+  if (!files.length) { setStatus('err','請放入 .gpx 檔案'); return; }
+  handleGpxFiles(files);
+}
+function handleGpxFiles(files) {
+  [...files].forEach(f => {
+    const r = new FileReader();
+    r.onload = e => parseAndAddGpx(f.name, e.target.result);
+    r.readAsText(f);
+  });
+}
+
+function parseAndAddGpx(filename, xmlText) {
+  const xml   = new DOMParser().parseFromString(xmlText, 'text/xml');
+  const color = GPX_COLORS[gpxColorIndex % GPX_COLORS.length];
+  gpxColorIndex++;
+
+  const trackName = xml.querySelector('name')?.textContent?.trim()
+    || filename.replace(/\.gpx$/i, '');
+
+  // ── Collect points ──
+  const allSegments = [];
+  xml.querySelectorAll('trk trkseg').forEach(seg => {
+    const pts = [...seg.querySelectorAll('trkpt')].map(pt => ({
+      lat:  parseFloat(pt.getAttribute('lat')),
+      lon:  parseFloat(pt.getAttribute('lon')),
+      ele:  parseFloat(pt.querySelector('ele')?.textContent ?? 0),
+      time: pt.querySelector('time')?.textContent ?? null,
+    })).filter(p => !isNaN(p.lat) && !isNaN(p.lon));
+    if (pts.length) allSegments.push(pts);
+  });
+
+  xml.querySelectorAll('rte').forEach(rte => {
+    const pts = [...rte.querySelectorAll('rtept')].map(pt => ({
+      lat: parseFloat(pt.getAttribute('lat')),
+      lon: parseFloat(pt.getAttribute('lon')),
+      ele: parseFloat(pt.querySelector('ele')?.textContent ?? 0),
+      time: null,
+    })).filter(p => !isNaN(p.lat) && !isNaN(p.lon));
+    if (pts.length) allSegments.push(pts);
+  });
+
+  const waypoints = [...xml.querySelectorAll('wpt')].map(wpt => ({
+    lat:  parseFloat(wpt.getAttribute('lat')),
+    lon:  parseFloat(wpt.getAttribute('lon')),
+    name: wpt.querySelector('name')?.textContent?.trim() ?? '',
+    ele:  parseFloat(wpt.querySelector('ele')?.textContent ?? 0),
+  })).filter(p => !isNaN(p.lat) && !isNaN(p.lon));
+
+  const allPts = allSegments.flat();
+  if (!allPts.length && !waypoints.length) {
+    setStatus('err', `「${filename}」中找不到有效的軌跡點`);
+    return;
+  }
+
+  // ── Build Leaflet layer group ──
+  const layerGroup = L.layerGroup();
+
+  allSegments.forEach(seg => {
+    const ll = seg.map(p => [p.lat, p.lon]);
+    // Drop shadow
+    L.polyline(ll, { color:'#000', weight:5, opacity:0.22, lineJoin:'round', lineCap:'round' }).addTo(layerGroup);
+    // Track
+    L.polyline(ll, { color, weight:3.5, opacity:0.95, lineJoin:'round', lineCap:'round' }).addTo(layerGroup);
+  });
+
+  // Start / End
+  if (allPts.length) {
+    const s = allPts[0], e = allPts[allPts.length - 1];
+    const mkIcon = (emoji, bg) => L.divIcon({
+      html: `<div style="width:26px;height:26px;border-radius:50%;background:${bg};border:2.5px solid #fff;
+        display:flex;align-items:center;justify-content:center;font-size:12px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.55)">${emoji}</div>`,
+      className:'', iconSize:[26,26], iconAnchor:[13,13],
+    });
+    L.marker([s.lat,s.lon], { icon:mkIcon('▶','#22c55e'), zIndexOffset:2000 })
+      .bindPopup(gpxPopup('▶ 起點', trackName, s)).addTo(layerGroup);
+    if (s.lat !== e.lat || s.lon !== e.lon) {
+      L.marker([e.lat,e.lon], { icon:mkIcon('■','#ef4444'), zIndexOffset:2000 })
+        .bindPopup(gpxPopup('■ 終點', trackName, e)).addTo(layerGroup);
+    }
+  }
+
+  // Waypoints
+  waypoints.forEach(wpt => {
+    const icon = L.divIcon({
+      html:`<div style="width:20px;height:20px;border-radius:50%;background:#ffd166;border:2px solid #fff;
+        display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;
+        box-shadow:0 1px 5px rgba(0,0,0,0.4)">W</div>`,
+      className:'', iconSize:[20,20], iconAnchor:[10,10],
+    });
+    L.marker([wpt.lat,wpt.lon], { icon, zIndexOffset:1900 })
+      .bindPopup(`<div class="gpx-popup-title">📍 ${wpt.name||'航點'}</div>
+        <div class="gpx-popup-row"><span class="gpx-popup-key">座標</span><span class="gpx-popup-val">${wpt.lat.toFixed(5)}, ${wpt.lon.toFixed(5)}</span></div>
+        ${wpt.ele?`<div class="gpx-popup-row"><span class="gpx-popup-key">海拔</span><span class="gpx-popup-val">${wpt.ele.toFixed(0)} m</span></div>`:''}`)
+      .addTo(layerGroup);
+  });
+
+  // Add to map — always on top of other tile layers
+  layerGroup.addTo(map);
+
+  // ── Stats & bounds ──
+  const stats  = computeStats(allPts);
+  const allLL  = [...allPts.map(p=>[p.lat,p.lon]), ...waypoints.map(p=>[p.lat,p.lon])];
+  const bounds = allLL.length ? L.latLngBounds(allLL) : null;
+
+  const id = 'gpx-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+  gpxTracks.push({ id, name:trackName, color, layerGroup, stats, bounds });
+
+  renderGpxList();
+  if (bounds) map.fitBounds(bounds, { padding:[30,30] });
+  setStatus('ok', `已載入 GPX：${trackName}（${stats.distKm} km）`);
+}
+
+function gpxPopup(label, track, pt) {
+  return `<div class="gpx-popup-title">${label}</div>
+    <div class="gpx-popup-row"><span class="gpx-popup-key">軌跡</span><span class="gpx-popup-val">${track}</span></div>
+    ${pt.ele?`<div class="gpx-popup-row"><span class="gpx-popup-key">海拔</span><span class="gpx-popup-val">${pt.ele.toFixed(0)} m</span></div>`:''}
+    ${pt.time?`<div class="gpx-popup-row"><span class="gpx-popup-key">時間</span><span class="gpx-popup-val">${fmtTime(pt.time)}</span></div>`:''}`;
+}
+
+function computeStats(pts) {
+  if (pts.length < 2) return { distKm:'0.00', elevGain:0, elevLoss:0, ptCount:pts.length };
+  let dist=0, gain=0, loss=0;
+  for (let i=1;i<pts.length;i++) {
+    dist += haversine(pts[i-1].lat,pts[i-1].lon,pts[i].lat,pts[i].lon);
+    const de = (pts[i].ele||0)-(pts[i-1].ele||0);
+    if (de>0) gain+=de; else loss+=Math.abs(de);
+  }
+  return { distKm:(dist/1000).toFixed(2), elevGain:Math.round(gain), elevLoss:Math.round(loss), ptCount:pts.length };
+}
+function haversine(lat1,lon1,lat2,lon2) {
+  const R=6371000, dLat=(lat2-lat1)*Math.PI/180, dLon=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function fmtTime(iso) {
+  try { return new Date(iso).toLocaleString('zh-TW',{dateStyle:'short',timeStyle:'short'}); } catch{return iso;}
+}
+
+function renderGpxList() {
+  const list = document.getElementById('gpxTrackList');
+  list.innerHTML = '';
+  gpxTracks.forEach(t => {
+    const card = document.createElement('div');
+    card.className = 'gpx-track-card';
+    card.innerHTML = `
+      <div class="gpx-track-header">
+        <div class="gpx-color-dot" style="background:${t.color}"></div>
+        <div class="gpx-track-name" title="${t.name}">${t.name}</div>
+      </div>
+      <div class="gpx-track-stats">
+        <div class="gpx-stat">📏 <strong>${t.stats.distKm} km</strong></div>
+        ${t.stats.elevGain?`<div class="gpx-stat">↑ <strong>${t.stats.elevGain} m</strong></div>`:''}
+        ${t.stats.elevLoss?`<div class="gpx-stat">↓ <strong>${t.stats.elevLoss} m</strong></div>`:''}
+        <div class="gpx-stat">📍 <strong>${t.stats.ptCount}</strong> 點</div>
+      </div>
+      <div class="gpx-track-actions">
+        <button class="btn-gpx-fit" onclick="fitGpx('${t.id}')">🔍 縮放至範圍</button>
+        <button class="btn-gpx-del" onclick="removeGpx('${t.id}')">✕ 移除</button>
+      </div>`;
+    list.appendChild(card);
+  });
+  document.getElementById('gpxCountBadge').textContent = `${gpxTracks.length} 個軌跡`;
+}
+
+function fitGpx(id) {
+  const t = gpxTracks.find(t=>t.id===id);
+  if (t?.bounds) map.fitBounds(t.bounds, { padding:[30,30] });
+}
+function removeGpx(id) {
+  const i = gpxTracks.findIndex(t=>t.id===id);
+  if (i===-1) return;
+  map.removeLayer(gpxTracks[i].layerGroup);
+  gpxTracks.splice(i,1);
+  renderGpxList();
+  setStatus('ok','已移除 GPX 軌跡');
+}
+function toggleGpxPanel() {
+  const body = document.getElementById('gpxPanelBody');
+  const chev = document.getElementById('gpxPanelChevron');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  chev.classList.toggle('open', !open);
+}
+
+// ══════════════════════════════════════════════
+//  WMTS OVERLAYS
+// ══════════════════════════════════════════════
+
+function renderActiveSlots() {
+  const c = document.getElementById('activeLayers');
+  c.innerHTML = '';
+  for (let i=0;i<MAX_OVERLAYS;i++) {
+    const ov=overlays[i], slot=document.createElement('div'), col=SLOT_COLORS[i];
+    slot.className='overlay-slot'+(ov?' has-layer':'');
+    if (ov) {
+      const op=Math.round(ov.layer.options.opacity*100);
+      slot.innerHTML=`<div class="overlay-slot-header">
+        <div class="slot-num" style="background:${col}">${i+1}</div>
+        <div class="slot-title" title="${ov.title}">${ov.title}</div>
+        <button class="btn btn-danger" onclick="removeOverlay(${i})">✕</button>
+      </div>
+      <div class="opacity-row">
+        <span>透明</span>
+        <input type="range" min="0" max="100" value="${op}" oninput="updateSlotOpacity(${i},this.value)" style="accent-color:${col}"/>
+        <span class="opacity-pct" id="opct-${i}">${op}%</span>
+      </div>`;
+    } else {
+      slot.innerHTML=`<div class="overlay-slot-header">
+        <div class="slot-num">${i+1}</div>
+        <div class="slot-title empty-slot-hint">（空槽位）</div>
+      </div>`;
+    }
+    c.appendChild(slot);
+  }
+  document.getElementById('slotCountBadge').textContent=`${overlays.length} / ${MAX_OVERLAYS}`;
+  document.getElementById('maxWarn').classList.toggle('show',overlays.length>=MAX_OVERLAYS);
+}
+function updateSlotOpacity(i,val) {
+  if (overlays[i]) { overlays[i].layer.setOpacity(val/100); document.getElementById('opct-'+i).textContent=val+'%'; }
+}
+function removeOverlay(i) {
+  if (!overlays[i]) return;
+  map.removeLayer(overlays[i].layer); overlays.splice(i,1);
+  renderActiveSlots();
+  setStatus('ok',overlays.length>0?`已移除，目前 ${overlays.length} 個圖層`:'已清除所有疊加圖層');
+}
+function clearAllOverlays() {
+  overlays.forEach(o=>map.removeLayer(o.layer)); overlays=[];
+  gpxTracks.forEach(t=>map.removeLayer(t.layerGroup)); gpxTracks=[]; gpxColorIndex=0;
+  renderActiveSlots(); renderGpxList();
+  document.getElementById('layerList').innerHTML=
+    '<div class="empty-state"><div class="empty-icon">📡</div>請輸入 WMTS 網址<br>並點擊「載入圖資」</div>';
+  document.getElementById('infoPanel').classList.remove('show');
+  setStatus('idle','已清除所有圖層與 GPX 軌跡');
+}
+function toggleActivePanel() {
+  const b=document.getElementById('activeLayers'),c=document.getElementById('activePanelChevron'),o=b.style.display!=='none';
+  b.style.display=o?'none':''; c.classList.toggle('open',!o);
+}
+
+function getText(el,tag) { const n=el.querySelector(tag); return n?n.textContent.trim():''; }
+function parseCapabilities(xmlText) {
+  const xml=new DOMParser().parseFromString(xmlText,'text/xml'), layers=[];
+  xml.querySelectorAll('Layer').forEach(layer=>{
+    const id=getText(layer,'Identifier')||getText(layer,'ows\\:Identifier'); if(!id) return;
+    const title=getText(layer,'Title')||getText(layer,'ows\\:Title')||id;
+    const abstract=getText(layer,'Abstract')||getText(layer,'ows\\:Abstract')||'';
+    const formats=[...layer.querySelectorAll('Format')].map(f=>f.textContent.trim());
+    const tmsLinks=[...layer.querySelectorAll('TileMatrixSetLink')].map(t=>getText(t,'TileMatrixSet')||getText(t,'ows\\:TileMatrixSet'));
+    const styles=[...layer.querySelectorAll('Style')].map(s=>getText(s,'Identifier')||getText(s,'ows\\:Identifier'));
+    let bbox=null;
+    const bboxEl=layer.querySelector('WGS84BoundingBox')||layer.querySelector('BoundingBox');
+    if(bboxEl){const lc=getText(bboxEl,'LowerCorner'),uc=getText(bboxEl,'UpperCorner');if(lc&&uc){const[x0,y0]=lc.split(' ').map(Number),[x1,y1]=uc.split(' ').map(Number);bbox=[[y0,x0],[y1,x1]];}}
+    layers.push({id,title,abstract,formats,tmsLinks,styles,bbox});
+  });
+  const resourceUrls={};
+  xml.querySelectorAll('ResourceURL').forEach(r=>{const l=r.closest('Layer');if(!l)return;const id=getText(l,'Identifier')||getText(l,'ows\\:Identifier');if(!resourceUrls[id])resourceUrls[id]=r.getAttribute('template');});
+  const opEl=xml.querySelector('OperationsMetadata Operation[name="GetTile"]')||xml.querySelector('Operation[name="GetTile"]');
+  let kvpUrl='';
+  if(opEl){const g=opEl.querySelector('Get');if(g)kvpUrl=g.getAttribute('xlink:href')||'';}
+  return{layers,resourceUrls,kvpUrl};
+}
+function buildWMTSTileUrl(baseUrl,layerId,style,tms,format) {
+  const url=baseUrl.split('?')[0].replace(/\/+$/,'');
+  if(url.includes('{TileMatrix}')||url.includes('{z}'))return url;
+  return`${url}?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${encodeURIComponent(layerId)}&STYLE=${encodeURIComponent(style||'default')}&TILEMATRIXSET=${encodeURIComponent(tms||'GoogleMapsCompatible')}&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=${encodeURIComponent(format||'image/png')}`;
+}
+async function fetchCapabilities(url) {
+  try{const r=await fetch(url,{mode:'cors',signal:AbortSignal.timeout(10000)});if(r.ok)return await r.text();}catch(_){}
+  for(const p of[`https://corsproxy.io/?${encodeURIComponent(url)}`,`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`]){
+    try{const r=await fetch(p,{signal:AbortSignal.timeout(12000)});if(r.ok)return await r.text();}catch(_){}
+  }
+  throw new Error('無法取得 Capabilities，請確認網址或網路連線');
+}
+async function loadWMTS() {
+  let url=document.getElementById('urlInput').value.trim();
+  if(!url){alert('請輸入 WMTS 網址');return;}
+  const capUrl=url.includes('?')?(url.toLowerCase().includes('getcapabilities')?url:url+'&SERVICE=WMTS&REQUEST=GetCapabilities&VERSION=1.0.0'):url+'?SERVICE=WMTS&REQUEST=GetCapabilities&VERSION=1.0.0';
+  showLoading(true,'正在取得 GetCapabilities...'); setStatus('loading','連線中...');
+  try{
+    const xmlText=await fetchCapabilities(capUrl);
+    showLoading(true,'正在解析圖層資訊...');
+    const{layers,resourceUrls,kvpUrl}=parseCapabilities(xmlText);
+    if(!layers.length)throw new Error('未找到任何圖層，請確認 WMTS 服務回應格式');
+    setStatus('ok',`成功載入 ${layers.length} 個圖層`);
+    renderLayerList(layers,url,resourceUrls,kvpUrl);
+  }catch(err){
+    setStatus('err','載入失敗：'+err.message);
+    document.getElementById('layerList').innerHTML=`<div class="empty-state"><div class="empty-icon">⚠️</div>${err.message}</div>`;
+  }finally{showLoading(false);}
+}
+function renderLayerList(layers,baseUrl,resourceUrls,kvpUrl) {
+  const list=document.getElementById('layerList'); list.innerHTML='';
+  layers.forEach((layer,i)=>{
+    const item=document.createElement('div'),loaded=overlays.some(o=>o.id===layer.id);
+    item.className='layer-item'+(loaded?' active':'');
+    const fmt=layer.formats[0]||'image/png',tms=layer.tmsLinks[0]||'GoogleMapsCompatible';
+    item.innerHTML=`<div class="layer-title">${layer.title}</div>
+      <div class="layer-meta">ID: ${layer.id}</div>
+      <div><span class="badge badge-blue">${fmt.split('/')[1]||fmt}</span>
+      <span class="badge badge-amber">${tms}</span>
+      ${loaded?'<span class="badge badge-green">已載入</span>':''}</div>`;
+    item.onclick=()=>{
+      if(overlays.length>=MAX_OVERLAYS){setStatus('err',`已達上限（${MAX_OVERLAYS} 個），請先移除`);return;}
+      if(overlays.some(o=>o.id===layer.id)){setStatus('ok',`「${layer.title}」已在地圖上`);return;}
+      addOverlayLayer(layer,baseUrl,resourceUrls,kvpUrl);
+      document.querySelectorAll('.layer-item').forEach(e=>e.classList.remove('active'));
+      item.classList.add('active');
+      item.querySelector('.badge-amber').insertAdjacentHTML('afterend',' <span class="badge badge-green">已載入</span>');
+    };
+    list.appendChild(item);
+  });
+}
+function addOverlayLayer(layer,baseUrl,resourceUrls,kvpUrl) {
+  const style=layer.styles[0]||'default',tms=layer.tmsLinks[0]||'GoogleMapsCompatible';
+  const fmt=layer.formats.find(f=>f.includes('png')||f.includes('jpeg'))||layer.formats[0]||'image/png';
+  let tileUrl;
+  if(resourceUrls[layer.id]){
+    tileUrl=resourceUrls[layer.id].replace('{TileMatrix}','{z}').replace('{TileRow}','{y}').replace('{TileCol}','{x}').replace('{Style}',style).replace('{TileMatrixSet}',tms);
+  }else{tileUrl=buildWMTSTileUrl(kvpUrl||baseUrl,layer.id,style,tms,fmt);}
+  const lyr=L.tileLayer(tileUrl,{opacity:0.9,maxZoom:20,tms:false,attribution:layer.title,errorTileUrl:''}).addTo(map);
+  // Ensure GPX layers remain on top
+  gpxTracks.forEach(t=>t.layerGroup.bringToFront());
+  overlays.push({id:layer.id,title:layer.title,layer:lyr});
+  renderActiveSlots();
+  setStatus('ok',`已加入：${layer.title}（${overlays.length}/${MAX_OVERLAYS}）`);
+  if(layer.bbox){try{map.fitBounds(layer.bbox);}catch(_){}}
+  showInfoPanel(layer);
+}
+function showInfoPanel(layer) {
+  document.getElementById('infoTitle').textContent=layer.title;
+  document.getElementById('infoContent').innerHTML=`
+    <div class="info-row"><span class="info-key">識別碼</span><span class="info-val">${layer.id}</span></div>
+    <div class="info-row"><span class="info-key">格式</span><span class="info-val">${layer.formats.join(', ')||'—'}</span></div>
+    <div class="info-row"><span class="info-key">TileMatrixSet</span><span class="info-val">${layer.tmsLinks.join(', ')||'—'}</span></div>
+    <div class="info-row"><span class="info-key">樣式</span><span class="info-val">${layer.styles.join(', ')||'default'}</span></div>
+    ${layer.abstract?`<div style="margin-top:8px;font-size:11px;color:var(--muted);line-height:1.5">${layer.abstract.substring(0,120)}</div>`:''}`;
+  document.getElementById('infoPanel').classList.add('show');
+}
+function loadPreset(key) {
+  if(key==='nlsc'){document.getElementById('urlInput').value='https://wmts.nlsc.gov.tw/wmts';loadWMTS();}
+  else if(key==='nlsc_ortho'){
+    if(overlays.length>=MAX_OVERLAYS){setStatus('err','已達上限');return;}
+    const lyr=L.tileLayer('https://wmts.nlsc.gov.tw/wmts/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}',
+      {opacity:0.9,maxZoom:20,attribution:'國土測繪正射影像',errorTileUrl:''}).addTo(map);
+    gpxTracks.forEach(t=>t.layerGroup.bringToFront());
+    overlays.push({id:'PHOTO2',title:'國土測繪 - 正射影像',layer:lyr});
+    renderActiveSlots();
+    setStatus('ok',`已加入：國土測繪正射影像（${overlays.length}/${MAX_OVERLAYS}）`);
+  }
+}
+
+document.getElementById('urlInput').addEventListener('keydown',e=>{if(e.key==='Enter')loadWMTS();});
+
+// Init
+renderActiveSlots();
+renderGpxList();
+</script>
+</body>
+</html>
