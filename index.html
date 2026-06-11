@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>地圖及航跡檢視器</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#f0f4f8;
+  --surface:#ffffff;
+  --surface2:#f7f9fc;
+  --border:#dde3ec;
+  --border2:#c8d3e0;
+  --accent:#1d6fd8;
+  --accent-lt:#e8f0fc;
+  --cyan:#0891b2;
+  --cyan-lt:#e0f5fb;
+  --green:#15803d;
+  --green-lt:#dcfce7;
+  --purple:#7c3aed;
+  --purple-lt:#ede9fe;
+  --orange:#c2410c;
+  --orange-lt:#fff0e6;
+  --text:#1e293b;
+  --text2:#374151;
+  --muted:#64748b;
+  --muted2:#94a3b8;
+  --font-ui:'Noto Sans TC',sans-serif;
+  --font-mono:'Space Mono',monospace;
+}
+
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--font-ui);
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+
+/* ── HERO ── */
+.hero{
+  width:100%;
+  padding:64px 24px 52px;
+  text-align:center;
+  position:relative;
+  overflow:hidden;
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+}
+.hero::before{
+  content:'';
+  position:absolute;inset:0;
+  background:
+    radial-gradient(ellipse 65% 55% at 50% -5%, rgba(29,111,216,.07) 0%, transparent 68%),
+    radial-gradient(ellipse 35% 35% at 15% 105%, rgba(8,145,178,.05) 0%, transparent 60%),
+    radial-gradient(ellipse 35% 35% at 85% 105%, rgba(124,58,237,.04) 0%, transparent 60%);
+  pointer-events:none;
+}
+.hero-contour{
+  position:absolute;inset:0;
+  opacity:.055;
+  pointer-events:none;
+}
+.hero-eyebrow{
+  font-family:var(--font-mono);
+  font-size:11.5px;
+  letter-spacing:3.5px;
+  color:var(--cyan);
+  text-transform:uppercase;
+  margin-bottom:22px;
+  position:relative;
+}
+.hero-title{
+  font-size:clamp(26px,4.5vw,50px);
+  font-weight:700;
+  letter-spacing:-0.5px;
+  line-height:1.15;
+  color:var(--text);
+  margin-bottom:14px;
+  position:relative;
+}
+.hero-title span{
+  background:linear-gradient(90deg, var(--accent), var(--cyan));
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.hero-sub{
+  font-size:15px;
+  color:var(--muted);
+  max-width:500px;
+  margin:0 auto;
+  line-height:1.75;
+  position:relative;
+}
+
+/* ── VERSION CARDS ── */
+.cards-section{
+  width:100%;max-width:1000px;
+  padding:48px 24px 20px;
+}
+.cards-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+  gap:18px;
+}
+.card{
+  position:relative;
+  display:flex;flex-direction:column;
+  background:var(--surface);
+  border:1.5px solid var(--border);
+  border-radius:14px;
+  padding:28px 26px 24px;
+  text-decoration:none;
+  color:var(--text);
+  overflow:hidden;
+  transition:transform .2s,border-color .2s,box-shadow .2s;
+}
+.card:hover{
+  transform:translateY(-4px);
+  border-color:var(--card-color);
+  box-shadow:0 12px 36px rgba(0,0,0,.1), 0 0 0 3px var(--card-tint);
+}
+.card-desktop{--card-color:var(--accent);--card-tint:rgba(29,111,216,.08);--card-lt:var(--accent-lt);}
+.card-mobile {--card-color:var(--green); --card-tint:rgba(21,128,61,.07); --card-lt:var(--green-lt);}
+.card-split  {--card-color:var(--purple);--card-tint:rgba(124,58,237,.07);--card-lt:var(--purple-lt);}
+
+.card-icon-wrap{
+  width:48px;height:48px;
+  border-radius:12px;
+  background:var(--card-lt);
+  display:flex;align-items:center;justify-content:center;
+  font-size:24px;
+  margin-bottom:16px;
+}
+.card-title{
+  font-size:19px;font-weight:700;
+  margin-bottom:6px;
+  color:var(--text);
+}
+.card-desc{
+  font-size:13.5px;color:var(--muted);
+  line-height:1.68;flex:1;margin-bottom:20px;
+}
+.card-cta{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:13px;font-weight:600;
+  color:var(--card-color);
+  font-family:var(--font-mono);
+  letter-spacing:.4px;
+}
+.card-cta::after{content:'→';transition:transform .2s;}
+.card:hover .card-cta::after{transform:translateX(4px);}
+.card-tag{
+  position:absolute;top:16px;right:16px;
+  font-family:var(--font-mono);font-size:10px;letter-spacing:1.5px;
+  color:var(--card-color);
+  background:var(--card-lt);
+  border:1px solid var(--card-tint);
+  border-radius:20px;padding:2px 10px;
+}
+
+/* ── FEATURES SECTION ── */
+.features-section{
+  width:100%;max-width:1000px;
+  padding:36px 24px 0;
+}
+.sec-header{
+  display:flex;align-items:center;gap:16px;margin-bottom:24px;
+}
+.sec-title{
+  font-family:var(--font-mono);font-size:12.5px;
+  letter-spacing:3px;color:var(--muted2);
+  text-transform:uppercase;white-space:nowrap;
+}
+.sec-rule{flex:1;height:1px;background:var(--border);}
+
+.ftabs{display:flex;gap:5px;margin-bottom:18px;flex-wrap:wrap;}
+.ftab{
+  padding:5px 15px;border-radius:20px;
+  border:1.5px solid var(--border);
+  background:var(--surface);
+  color:var(--muted);
+  font-family:var(--font-ui);font-size:13px;
+  cursor:pointer;transition:all .15s;
+}
+.ftab:hover{color:var(--text);border-color:var(--border2);}
+.ftab.active{
+  background:var(--ftab-bg);
+  border-color:var(--ftab-color);
+  color:var(--ftab-color);
+  font-weight:600;
+}
+.ftab-wmts{--ftab-color:var(--accent);  --ftab-bg:var(--accent-lt);}
+.ftab-xyz {--ftab-color:var(--cyan);    --ftab-bg:var(--cyan-lt);}
+.ftab-wms {--ftab-color:var(--purple);  --ftab-bg:var(--purple-lt);}
+.ftab-gpx {--ftab-color:var(--orange);  --ftab-bg:var(--orange-lt);}
+.ftab-mm  {--ftab-color:var(--green);   --ftab-bg:var(--green-lt);}
+
+.feat-panel{display:none;}
+.feat-panel.active{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+
+.fpcard{
+  background:var(--surface);
+  border:1.5px solid var(--border);
+  border-radius:10px;padding:17px 18px;
+}
+.fpcard-label{
+  font-size:10.5px;letter-spacing:2px;
+  color:var(--muted2);text-transform:uppercase;
+  font-family:var(--font-mono);margin-bottom:8px;
+}
+.fpcard-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px;}
+.fpcard-text{font-size:13px;color:var(--muted);line-height:1.72;}
+
+/* ── SHARED FEATURES ── */
+.shared-section{
+  width:100%;max-width:1000px;
+  padding:28px 24px 0;
+}
+.shared-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+  gap:10px;
+}
+.shared-item{
+  display:flex;align-items:flex-start;gap:11px;
+  background:var(--surface);
+  border:1.5px solid var(--border);
+  border-radius:9px;padding:13px 15px;
+  font-size:13px;color:var(--muted);line-height:1.65;
+}
+.shared-item-icon{font-size:17px;flex-shrink:0;margin-top:0px;}
+
+/* ── FOOTER ── */
+footer{
+  width:100%;
+  padding:40px 24px 32px;
+  text-align:center;
+  color:var(--muted2);
+  font-size:12px;
+  font-family:var(--font-mono);
+  letter-spacing:.5px;
+  border-top:1px solid var(--border);
+  margin-top:52px;
+  background:var(--surface);
+}
+footer a{color:var(--accent);text-decoration:none;}
+footer a:hover{text-decoration:underline;}
+
+@media(max-width:640px){
+  .hero{padding:44px 20px 36px;}
+  .feat-panel.active{grid-template-columns:1fr;}
+  .cards-section,.features-section,.shared-section{padding-left:16px;padding-right:16px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<section class="hero">
+  <svg class="hero-contour" viewBox="0 0 1200 320" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <ellipse cx="600" cy="430" rx="570" ry="370" fill="none" stroke="#1d6fd8" stroke-width="1.3"/>
+    <ellipse cx="600" cy="430" rx="470" ry="295" fill="none" stroke="#0891b2" stroke-width="1.1"/>
+    <ellipse cx="600" cy="430" rx="370" ry="225" fill="none" stroke="#1d6fd8" stroke-width="1"/>
+    <ellipse cx="600" cy="430" rx="275" ry="160" fill="none" stroke="#7c3aed" stroke-width="1"/>
+    <ellipse cx="600" cy="430" rx="185" ry="98"  fill="none" stroke="#0891b2" stroke-width="1"/>
+    <ellipse cx="600" cy="430" rx="105" ry="46"  fill="none" stroke="#7c3aed" stroke-width="1"/>
+    <ellipse cx="180" cy="390" rx="195" ry="138" fill="none" stroke="#1d6fd8" stroke-width=".9"/>
+    <ellipse cx="180" cy="390" rx="130" ry="88"  fill="none" stroke="#0891b2" stroke-width=".9"/>
+    <ellipse cx="1020" cy="370" rx="215" ry="148" fill="none" stroke="#1d6fd8" stroke-width=".9"/>
+    <ellipse cx="1020" cy="370" rx="145" ry="92"  fill="none" stroke="#0891b2" stroke-width=".9"/>
+  </svg>
+  <div class="hero-eyebrow">WMTS · XYZ · WMS · GPX · My Maps</div>
+  <h1 class="hero-title">地圖及<span>航跡檢視器</span></h1>
+  <p class="hero-sub">支援多種圖資格式疊加顯示，可載入 GPX 航跡，適用電腦、手機及分割視窗對比使用。</p>
+</section>
+
+<!-- VERSION CARDS -->
+<section class="cards-section">
+  <div class="cards-grid">
+
+    <a href="WMTS_GPX_Viewer.html" class="card card-desktop">
+      <span class="card-tag">DESKTOP</span>
+      <div class="card-icon-wrap">🖥️</div>
+      <div class="card-title">電腦版</div>
+      <div class="card-desc">完整功能的桌面介面，側邊欄管理圖層順序與透明度，適合大螢幕操作。</div>
+      <div class="card-cta">開啟電腦版</div>
+    </a>
+
+    <a href="WMTS_GPX_Viewer-mobile.html" class="card card-mobile">
+      <span class="card-tag">MOBILE</span>
+      <div class="card-icon-wrap">📱</div>
+      <div class="card-title">手機版</div>
+      <div class="card-desc">針對觸控操作最佳化，點選右下方管理按鈕即可滑出圖層管理面板。</div>
+      <div class="card-cta">開啟手機版</div>
+    </a>
+
+    <a href="WMTS_GPX_Viewer_split.html" class="card card-split">
+      <span class="card-tag">SPLIT VIEW</span>
+      <div class="card-icon-wrap">⚡</div>
+      <div class="card-title">分割視窗對比</div>
+      <div class="card-desc">左右兩個獨立地圖並排顯示，拖動中央分隔線即可比對同一地點在不同圖資下的差異。</div>
+      <div class="card-cta">開啟分割對比</div>
+    </a>
+
+  </div>
+</section>
+
+<!-- FEATURE TABS -->
+<section class="features-section">
+  <div class="sec-header">
+    <span class="sec-title">圖資來源說明</span>
+    <div class="sec-rule"></div>
+  </div>
+  <div class="ftabs">
+    <button class="ftab ftab-wmts active" onclick="switchFeat('wmts',this)">WMTS</button>
+    <button class="ftab ftab-xyz"  onclick="switchFeat('xyz',this)">XYZ</button>
+    <button class="ftab ftab-wms"  onclick="switchFeat('wms',this)">WMS</button>
+    <button class="ftab ftab-gpx"  onclick="switchFeat('gpx',this)">GPX</button>
+    <button class="ftab ftab-mm"   onclick="switchFeat('mm',this)">My Maps</button>
+  </div>
+  <div class="feat-panels">
+
+    <div class="feat-panel active" id="fp-wmts">
+      <div class="fpcard">
+        <div class="fpcard-label">輸入方式</div>
+        <div class="fpcard-title">貼上 GetCapabilities 網址</div>
+        <div class="fpcard-text">在 URL 欄位輸入 WMTS 伺服器的 GetCapabilities 網址，按「解析圖層」即自動列出所有可用圖層。</div>
+      </div>
+      <div class="fpcard">
+        <div class="fpcard-label">套用方式</div>
+        <div class="fpcard-title">點選圖層名稱即疊加</div>
+        <div class="fpcard-text">從解析結果中點選任意圖層，立即疊加在底圖上；可多層疊加並個別調整透明度。</div>
+      </div>
+      <div class="fpcard">
+        <div class="fpcard-label">預設來源</div>
+        <div class="fpcard-title">臺灣通用電子地圖</div>
+        <div class="fpcard-text">預設載入國土測繪中心 WMTS 服務（wmts.nlsc.gov.tw），開啟即可使用，無需設定。</div>
+      </div>
+    </div>
+
+    <div class="feat-panel" id="fp-xyz">
+      <div class="fpcard">
+        <div class="fpcard-label">輸入方式</div>
+        <div class="fpcard-title">輸入圖磚 URL 樣板</div>
+        <div class="fpcard-text">在 URL 欄位貼上包含 {x}、{y}、{z} 變數的 XYZ 圖磚網址，並為圖層命名。</div>
+      </div>
+      <div class="fpcard">
+        <div class="fpcard-label">套用方式</div>
+        <div class="fpcard-title">按「＋」立即加入</div>
+        <div class="fpcard-text">點擊加入後圖層立即顯示，可與 WMTS、WMS 等其他圖層自由疊加，並調整前後順序。</div>
+      </div>
+      <div class="fpcard">
+        <div class="fpcard-label">網址記憶</div>
+        <div class="fpcard-title">自動記憶曾輸入的網址</div>
+        <div class="fpcard-text">點擊 URL 欄位旁的🕘按鈕，可從歷史記錄快速選取曾使用過的圖磚網址。</div>
+      </div>
+    </div>
+
+    <div class="feat-panel" id="fp-wms">
+      <div class="fpcard">
+        <div class="fpcard-label">輸入方式</div>
+        <div class="fpcard-title">貼上 WMS 伺服器網址</div>
+        <div class="fpcard-text">在 URL 欄位輸入 WMS 伺服器網址（不需加參數），按「解析」即自動取得 GetCapabilities 並列出圖層。</div>
+      </div>
+      <div class="fpcard">
+        <div class="fpcard-label">套用方式</div>
+        <div class="fpcard-title">點選圖層名稱即疊加</div>
+        <div class="fpcard-text">從解析結果清單中點選圖層名稱，以 WMS GetMap 方式動態請求並疊加顯示，支援透明背景。</div>
+      </div>
+      <div class="fpcard">
+        <div class="fpcard-label">跨來源存取</div>
+        <div class="fpcard-title">自動嘗試 CORS Proxy</div>
+        <div class="fpcard-text">若伺服器不支援跨來源請求，系統會自動透過多個公開 Proxy 重試，提高來源相容性。</div>
+      </div>
+    </div>
+
+    <div class="feat-panel" id="fp-gpx">
+      <div class="fpcard">
+        <div class="fpcard-label">載入方式</div>
+        <div class="fpcard-title">拖曳或點擊選取檔案</div>
+        <div class="fpcard-text">將 .gpx 檔案直接拖曳至地圖區域，或點擊「📂 GPX」按鈕從裝置選取，支援同時載入多條航跡。</div>
+      </div>
+      <div class="fpcard">
+        <div class="fpcard-label">顯示效果</div>
+        <div class="fpcard-title">自動上色並縮放至航跡範圍</div>
+        <div class="fpcard-text">每條航跡自動套用不同顏色；載入後地圖自動縮放定位至航跡涵蓋範圍。</div>
+      </div>
+      <div class="fpcard">
+        <div class="fpcard-label">管理</div>
+        <div class="fpcard-title">可個別移除航跡</div>
+        <div class="fpcard-text">從側邊欄（或手機管理面板）的 GPX 清單中，可逐一移除不需要的航跡圖層。</div>
+      </div>
+    </div>
+
+    <div class="feat-panel" id="fp-mm">
+      <div class="fpcard">
+        <div class="fpcard-label">輸入方式</div>
+        <div class="fpcard-title">貼上 Google 我的地圖連結</div>
+        <div class="fpcard-text">在瀏覽器中打開 Google 我的地圖，複製網址後貼至 URL 欄位，並輸入自訂圖層名稱。</div>
+      </div>
+      <div class="fpcard">
+        <div class="fpcard-label">疊加顯示</div>
+        <div class="fpcard-title">可同時開啟多個地圖</div>
+        <div class="fpcard-text">支援多個 Google 我的地圖同時疊加在底圖上，左下方顯示目前已載入的數量。</div>
+      </div>
+      <div class="fpcard">
+        <div class="fpcard-label">網址記憶</div>
+        <div class="fpcard-title">自動記憶曾使用的連結</div>
+        <div class="fpcard-text">點擊🕘按鈕可從歷史記錄快速選取，不需每次重新貼上連結。</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- SHARED FEATURES -->
+<section class="shared-section">
+  <div class="sec-header" style="margin-top:32px">
+    <span class="sec-title">通用功能</span>
+    <div class="sec-rule"></div>
+  </div>
+  <div class="shared-grid">
+    <div class="shared-item">
+      <span class="shared-item-icon">⠿</span>
+      <span>拖曳「⠿」圖示可調整圖層的前後疊加順序</span>
+    </div>
+    <div class="shared-item">
+      <span class="shared-item-icon">🔆</span>
+      <span>每個圖層可獨立調整透明度（0–100%）</span>
+    </div>
+    <div class="shared-item">
+      <span class="shared-item-icon">🕘</span>
+      <span>WMTS、XYZ、WMS、My Maps 均自動記憶曾輸入的網址</span>
+    </div>
+    <div class="shared-item">
+      <span class="shared-item-icon">📍</span>
+      <span>游標移動時即時顯示經緯度座標及目前縮放等級</span>
+    </div>
+    <div class="shared-item">
+      <span class="shared-item-icon">🗺️</span>
+      <span>多種圖資格式（WMTS、XYZ、WMS、GPX、My Maps）可自由疊加</span>
+    </div>
+    <div class="shared-item">
+      <span class="shared-item-icon">🔀</span>
+      <span>分割對比模式下，左右地圖視角同步聯動</span>
+    </div>
+  </div>
+</section>
+
+<footer>
+  地圖及航跡檢視器 &nbsp;·&nbsp; 基於 <a href="https://leafletjs.com">Leaflet</a> 建構
+</footer>
+
+<script>
+function switchFeat(key, btn){
+  document.querySelectorAll('.feat-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.ftab').forEach(b=>b.classList.remove('active'));
+  document.getElementById('fp-'+key).classList.add('active');
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>
