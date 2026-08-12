@@ -199,6 +199,36 @@ header{display:flex;align-items:center;gap:10px;padding:0 14px;height:46px;backg
 #mapR{position:absolute;inset:0;z-index:2;clip-path:inset(0 0 0 50%)}
 /* mapR clip-path updated by JS on divider drag */
 
+/* ── Locate button ── */
+.locate-btn{
+  position:absolute;z-index:600;right:16px;bottom:16px;
+  width:40px;height:40px;border-radius:50%;
+  border:1px solid var(--border);background:var(--panel);color:var(--text);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 16px rgba(0,0,0,.4);cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s;
+}
+.locate-btn:hover{background:rgba(59,130,246,.2);color:var(--accent)}
+.locate-btn svg{width:20px;height:20px;display:block}
+.locate-btn.locating svg{animation:locateSpin 1s linear infinite}
+.locate-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.locate-btn.active:hover{background:var(--accent);color:#fff}
+@keyframes locateSpin{to{transform:rotate(360deg)}}
+
+/* ── User location dot ── */
+.user-dot-wrap{width:18px;height:18px;position:relative}
+.user-dot-pulse{
+  position:absolute;top:50%;left:50%;width:18px;height:18px;
+  margin:-9px 0 0 -9px;border-radius:50%;background:rgba(59,130,246,.45);
+  animation:userDotPulse 2s ease-out infinite;
+}
+.user-dot-core{
+  position:absolute;top:50%;left:50%;width:13px;height:13px;
+  margin:-6.5px 0 0 -6.5px;border-radius:50%;background:var(--accent);
+  border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.3);
+}
+@keyframes userDotPulse{0%{transform:scale(0.6);opacity:.9}100%{transform:scale(2.6);opacity:0}}
+
 /* ── Split divider ── */
 #divider{
   position:absolute;top:0;bottom:0;
@@ -427,6 +457,16 @@ header{display:flex;align-items:center;gap:10px;padding:0 14px;height:46px;backg
     <div id="mapL"></div>
     <div id="mapR"></div>
     <div id="divider"></div>
+    <button class="locate-btn" id="locateBtn" onclick="toggleLocate()" title="定位目前位置">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <line x1="12" y1="2" x2="12" y2="5"></line>
+        <line x1="12" y1="19" x2="12" y2="22"></line>
+        <line x1="2" y1="12" x2="5" y2="12"></line>
+        <line x1="19" y1="12" x2="22" y2="12"></line>
+        <circle cx="12" cy="12" r="8"></circle>
+      </svg>
+    </button>
   </div>
 
   <!-- RIGHT SIDEBAR -->
@@ -538,6 +578,80 @@ syncTo(mapL,mapR); syncTo(mapR,mapL);
 
 [mapL,mapR].forEach(m=>{m.on('mousemove',e=>{document.getElementById('latV').textContent=e.latlng.lat.toFixed(5);document.getElementById('lngV').textContent=e.latlng.lng.toFixed(5);});});
 mapL.on('zoomend',()=>document.getElementById('zoomV').textContent=mapL.getZoom());
+
+// ── Geolocation (blue dot, shown on both L/R maps) ─────────────
+let geoWatchId=null,geoLocating=false,geoCenteredOnce=false;
+let geoMarkerL=null,geoCircL=null,geoMarkerR=null,geoCircR=null;
+
+function toggleLocate(){ if(geoLocating) stopLocate(); else startLocate(); }
+
+function startLocate(){
+  if(!('geolocation' in navigator)){ toast('此裝置不支援定位功能','err'); return; }
+  if(location.protocol!=='https:' && location.hostname!=='localhost' && location.protocol!=='file:'){
+    toast('定位功能需要 HTTPS 連線','err'); return;
+  }
+  geoLocating=true; geoCenteredOnce=false;
+  document.getElementById('locateBtn').classList.add('locating');
+  geoWatchId=navigator.geolocation.watchPosition(onGeoFound,onGeoError,{
+    enableHighAccuracy:true, maximumAge:5000, timeout:15000
+  });
+}
+
+function stopLocate(){
+  geoLocating=false;
+  if(geoWatchId!==null){ navigator.geolocation.clearWatch(geoWatchId); geoWatchId=null; }
+  const btn=document.getElementById('locateBtn');
+  btn.classList.remove('locating','active');
+  [[geoMarkerL,mapL],[geoMarkerR,mapR]].forEach(([mk,m])=>{ if(mk) m.removeLayer(mk); });
+  [[geoCircL,mapL],[geoCircR,mapR]].forEach(([c,m])=>{ if(c) m.removeLayer(c); });
+  geoMarkerL=geoCircL=geoMarkerR=geoCircR=null;
+}
+
+function makeDotIcon(){
+  return L.divIcon({
+    className:'',
+    html:'<div class="user-dot-wrap"><div class="user-dot-pulse"></div><div class="user-dot-core"></div></div>',
+    iconSize:[18,18], iconAnchor:[9,9]
+  });
+}
+
+function onGeoFound(pos){
+  const {latitude,longitude,accuracy}=pos.coords;
+  const latlng=[latitude,longitude];
+  const btn=document.getElementById('locateBtn');
+  btn.classList.remove('locating'); btn.classList.add('active');
+
+  if(!geoMarkerL){
+    geoMarkerL=L.marker(latlng,{icon:makeDotIcon(),zIndexOffset:3000,interactive:false}).addTo(mapL);
+    geoMarkerR=L.marker(latlng,{icon:makeDotIcon(),zIndexOffset:3000,interactive:false}).addTo(mapR);
+  } else {
+    geoMarkerL.setLatLng(latlng); geoMarkerR.setLatLng(latlng);
+  }
+
+  if(!geoCircL){
+    geoCircL=L.circle(latlng,{radius:accuracy,color:'#3b82f6',weight:1,fillColor:'#3b82f6',fillOpacity:.12,interactive:false}).addTo(mapL);
+    geoCircR=L.circle(latlng,{radius:accuracy,color:'#3b82f6',weight:1,fillColor:'#3b82f6',fillOpacity:.12,interactive:false}).addTo(mapR);
+  } else {
+    geoCircL.setLatLng(latlng); geoCircL.setRadius(accuracy);
+    geoCircR.setLatLng(latlng); geoCircR.setRadius(accuracy);
+  }
+
+  if(!geoCenteredOnce){
+    mapL.setView(latlng, Math.max(mapL.getZoom(),16));
+    geoCenteredOnce=true;
+  }
+}
+
+function onGeoError(err){
+  geoLocating=false;
+  if(geoWatchId!==null){ navigator.geolocation.clearWatch(geoWatchId); geoWatchId=null; }
+  document.getElementById('locateBtn').classList.remove('locating','active');
+  let msg='定位失敗';
+  if(err.code===1) msg='定位權限被拒絕，請至瀏覽器設定開啟';
+  else if(err.code===2) msg='無法取得目前位置';
+  else if(err.code===3) msg='定位逾時，請重試';
+  toast(msg,'err');
+}
 
 // State — each side has its own map instance
 const S={

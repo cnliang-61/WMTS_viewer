@@ -228,7 +228,37 @@ header { display:flex; align-items:center; gap:12px; padding:0 16px; height:48px
 .gpx-drop-zone:hover,.gpx-drop-zone.over { border-color:var(--gpx); background:rgba(255,107,53,.06); color:var(--gpx); }
 
 /* ── Map ── */
-#map { flex:1; background:var(--bg); }
+#map { flex:1; background:var(--bg); position:relative; }
+
+/* ── Locate button ── */
+.locate-btn {
+  position:absolute; z-index:1000; right:16px; bottom:16px;
+  width:42px; height:42px; border-radius:50%;
+  border:1px solid var(--border); background:var(--panel); color:var(--text);
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:0 4px 20px rgba(0,0,0,.4); cursor:pointer;
+  transition:background .15s, color .15s, border-color .15s;
+}
+.locate-btn:hover { background:rgba(59,130,246,.2); color:var(--accent); }
+.locate-btn svg { width:21px; height:21px; display:block; }
+.locate-btn.locating svg { animation:locateSpin 1s linear infinite; }
+.locate-btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+.locate-btn.active:hover { background:var(--accent); color:#fff; }
+@keyframes locateSpin { to { transform:rotate(360deg); } }
+
+/* ── User location dot ── */
+.user-dot-wrap { width:20px; height:20px; position:relative; }
+.user-dot-pulse {
+  position:absolute; top:50%; left:50%; width:20px; height:20px;
+  margin:-10px 0 0 -10px; border-radius:50%; background:rgba(59,130,246,.45);
+  animation:userDotPulse 2s ease-out infinite;
+}
+.user-dot-core {
+  position:absolute; top:50%; left:50%; width:14px; height:14px;
+  margin:-7px 0 0 -7px; border-radius:50%; background:var(--accent);
+  border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.3);
+}
+@keyframes userDotPulse { 0%{ transform:scale(0.6); opacity:.9; } 100%{ transform:scale(2.6); opacity:0; } }
 
 /* ── Info bar ── */
 .info-bar { display:flex; align-items:center; gap:12px; padding:0 14px; height:30px; background:var(--panel); border-top:1px solid var(--border); font-size:13.3px; color:var(--muted); flex-shrink:0; font-family:var(--font-mono); overflow:hidden; }
@@ -470,7 +500,18 @@ header { display:flex; align-items:center; gap:12px; padding:0 16px; height:48px
 
   <!-- Map -->
   <div id="map"
-    ondragover="dzOver(event)" ondragleave="dzLeave()" ondrop="dzDrop(event)"></div>
+    ondragover="dzOver(event)" ondragleave="dzLeave()" ondrop="dzDrop(event)">
+    <button class="locate-btn" id="locateBtn" onclick="toggleLocate()" title="定位目前位置">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <line x1="12" y1="2" x2="12" y2="5"></line>
+        <line x1="12" y1="19" x2="12" y2="22"></line>
+        <line x1="2" y1="12" x2="5" y2="12"></line>
+        <line x1="19" y1="12" x2="22" y2="12"></line>
+        <circle cx="12" cy="12" r="8"></circle>
+      </svg>
+    </button>
+  </div>
 
 </div>
 
@@ -498,6 +539,95 @@ map.on('mousemove', e => {
   document.getElementById('latVal').textContent = e.latlng.lat.toFixed(5);
   document.getElementById('lngVal').textContent = e.latlng.lng.toFixed(5);
 });
+
+// ── Geolocation (blue dot) ─────────────────────
+let geoWatchId      = null;
+let geoLocating     = false;
+let geoUserMarker   = null;
+let geoAccuracyCirc = null;
+let geoCenteredOnce = false;
+
+function toggleLocate() {
+  if (geoLocating) stopLocate();
+  else startLocate();
+}
+
+function startLocate() {
+  if (!('geolocation' in navigator)) {
+    toast('此裝置不支援定位功能', 'err');
+    return;
+  }
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.protocol !== 'file:') {
+    toast('定位功能需要 HTTPS 連線', 'err');
+    return;
+  }
+  geoLocating = true;
+  geoCenteredOnce = false;
+  document.getElementById('locateBtn').classList.add('locating');
+  geoWatchId = navigator.geolocation.watchPosition(onGeoFound, onGeoError, {
+    enableHighAccuracy: true,
+    maximumAge: 5000,
+    timeout: 15000
+  });
+}
+
+function stopLocate() {
+  geoLocating = false;
+  if (geoWatchId !== null) { navigator.geolocation.clearWatch(geoWatchId); geoWatchId = null; }
+  const btn = document.getElementById('locateBtn');
+  btn.classList.remove('locating', 'active');
+  if (geoUserMarker)   { map.removeLayer(geoUserMarker);   geoUserMarker = null; }
+  if (geoAccuracyCirc) { map.removeLayer(geoAccuracyCirc); geoAccuracyCirc = null; }
+}
+
+function onGeoFound(pos) {
+  const { latitude, longitude, accuracy } = pos.coords;
+  const latlng = [latitude, longitude];
+  const btn = document.getElementById('locateBtn');
+  btn.classList.remove('locating');
+  btn.classList.add('active');
+
+  if (!geoUserMarker) {
+    geoUserMarker = L.marker(latlng, {
+      icon: L.divIcon({
+        className: '',
+        html: '<div class="user-dot-wrap"><div class="user-dot-pulse"></div><div class="user-dot-core"></div></div>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+      }),
+      zIndexOffset: 3000,
+      interactive: false
+    }).addTo(map);
+  } else {
+    geoUserMarker.setLatLng(latlng);
+  }
+
+  if (!geoAccuracyCirc) {
+    geoAccuracyCirc = L.circle(latlng, {
+      radius: accuracy, color: '#3b82f6', weight: 1,
+      fillColor: '#3b82f6', fillOpacity: 0.12, interactive: false
+    }).addTo(map);
+  } else {
+    geoAccuracyCirc.setLatLng(latlng);
+    geoAccuracyCirc.setRadius(accuracy);
+  }
+
+  if (!geoCenteredOnce) {
+    map.setView(latlng, Math.max(map.getZoom(), 16));
+    geoCenteredOnce = true;
+  }
+}
+
+function onGeoError(err) {
+  geoLocating = false;
+  if (geoWatchId !== null) { navigator.geolocation.clearWatch(geoWatchId); geoWatchId = null; }
+  document.getElementById('locateBtn').classList.remove('locating', 'active');
+  let msg = '定位失敗';
+  if (err.code === 1) msg = '定位權限被拒絕，請至瀏覽器設定開啟';
+  else if (err.code === 2) msg = '無法取得目前位置';
+  else if (err.code === 3) msg = '定位逾時，請重試';
+  toast(msg, 'err');
+}
 map.on('zoomend', () => { document.getElementById('zoomVal').textContent = map.getZoom(); });
 
 // ── State ─────────────────────────────────────
