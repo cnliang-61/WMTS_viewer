@@ -644,6 +644,15 @@ function onGeoFound(pos) {
   if (!geoCenteredOnce) {
     map.setView(latlng, Math.max(map.getZoom(), 16));
     geoCenteredOnce = true;
+  } else {
+    // 藍點快移出畫面時，自動滑動地圖讓藍點回到中央
+    const size = map.getSize();
+    const pt = map.latLngToContainerPoint(latlng);
+    const marginX = size.x * 0.18;
+    const marginY = size.y * 0.18;
+    if (pt.x < marginX || pt.x > size.x - marginX || pt.y < marginY || pt.y > size.y - marginY) {
+      map.panTo(latlng, { animate: true, duration: 0.5 });
+    }
   }
 }
 
