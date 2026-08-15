@@ -93,6 +93,13 @@ html, body { width:100%; height:100%; font-family:var(--font-ui); background:var
 .locate-btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
 @keyframes locateSpin { to { transform:rotate(360deg); } }
 
+.follow-btn {
+  right:12px; bottom:calc(var(--peek) + var(--safe-b) + 12px + 44px + 8px);
+  width:38px; height:38px;
+}
+.follow-btn svg { width:18px; height:18px; }
+.follow-btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+
 /* ── User location dot ── */
 .user-dot-wrap { width:20px; height:20px; position:relative; }
 .user-dot-pulse {
@@ -368,6 +375,13 @@ input[type=range]::-moz-range-thumb { width:20px; height:20px; border-radius:50%
   <div class="coords-pill"><span id="latVal">—</span> , <span id="lngVal">—</span></div>
 </div>
 
+<!-- Auto-follow toggle -->
+<button class="locate-btn follow-btn" id="followBtn" onclick="toggleFollow()" title="自動跟隨">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polygon points="3 11 22 2 13 21 11 13 3 11"></polygon>
+  </svg>
+</button>
+
 <!-- Locate (GPS) button -->
 <button class="locate-btn" id="locateBtn" onclick="toggleLocate()" title="定位目前位置">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -575,10 +589,19 @@ let geoLocating     = false;
 let geoUserMarker   = null;
 let geoAccuracyCirc = null;
 let geoCenteredOnce = false;
+let geoAutoFollow   = false;
 
 function toggleLocate() {
   if (geoLocating) stopLocate();
   else startLocate();
+}
+
+function toggleFollow() {
+  geoAutoFollow = !geoAutoFollow;
+  document.getElementById('followBtn').classList.toggle('active', geoAutoFollow);
+  if (geoAutoFollow && geoUserMarker) {
+    map.panTo(geoUserMarker.getLatLng(), { animate: true });
+  }
 }
 
 function startLocate() {
@@ -602,9 +625,11 @@ function startLocate() {
 
 function stopLocate() {
   geoLocating = false;
+  geoAutoFollow = false;
   if (geoWatchId !== null) { navigator.geolocation.clearWatch(geoWatchId); geoWatchId = null; }
   const btn = document.getElementById('locateBtn');
   btn.classList.remove('locating', 'active');
+  document.getElementById('followBtn').classList.remove('active');
   if (geoUserMarker)   { map.removeLayer(geoUserMarker);   geoUserMarker = null; }
   if (geoAccuracyCirc) { map.removeLayer(geoAccuracyCirc); geoAccuracyCirc = null; }
 }
@@ -644,8 +669,8 @@ function onGeoFound(pos) {
   if (!geoCenteredOnce) {
     map.setView(latlng, Math.max(map.getZoom(), 16));
     geoCenteredOnce = true;
-  } else {
-    // 藍點快移出畫面時，自動滑動地圖讓藍點回到中央
+  } else if (geoAutoFollow) {
+    // 自動跟隨模式：藍點快移出畫面時，自動滑動地圖讓藍點回到中央
     const size = map.getSize();
     const pt = map.latLngToContainerPoint(latlng);
     const marginX = size.x * 0.18;
