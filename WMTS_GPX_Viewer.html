@@ -1673,30 +1673,13 @@ function parseWMSCapabilities(xmlText) {
   return layers;
 }
 
-async function fetchWMSCapabilities(url) {
-  const capUrl = (() => {
-    const base = url.split('?')[0];
-    return base + '?SERVICE=WMS&REQUEST=GetCapabilities';
-  })();
-
-  try {
-    const r = await fetch(capUrl, { mode:'cors', signal:AbortSignal.timeout(10000) });
-    if (r.ok) return await r.text();
-  } catch(_) {}
-
-  const enc = encodeURIComponent(capUrl);
-  for (const p of [
-    `https://corsproxy.io/?${enc}`,
-    `https://api.allorigins.win/raw?url=${enc}`,
-    `https://thingproxy.freeboard.io/fetch/${capUrl}`,
-    `https://api.codetabs.com/v1/proxy?quest=${enc}`
-  ]) {
-    try {
-      const r = await fetch(p, { signal:AbortSignal.timeout(12000) });
-      if (r.ok) return await r.text();
-    } catch(_) {}
-  }
-  throw new Error('無法取得 WMS Capabilities（嘗試所有代理均失敗）');
+async function fetchWMSCap(url){
+  const capUrl=url.split('?')[0]+'?SERVICE=WMS&REQUEST=GetCapabilities';
+  try{const r=await fetch(capUrl,{mode:'cors',signal:AbortSignal.timeout(8000)});if(r.ok)return await r.text();}catch(_){}
+  const myWorkerUrl = `https://wmts-cors-proxy.cnliang61.workers.dev/?url=${encodeURIComponent(capUrl)}`;
+  const r = await fetch(myWorkerUrl, { signal: AbortSignal.timeout(12000) });
+  if (r.ok) return await r.text();
+  throw new Error(`無法取得 WMS Capabilities (HTTP ${r.status})`);
 }
 
 async function loadWMS() {
