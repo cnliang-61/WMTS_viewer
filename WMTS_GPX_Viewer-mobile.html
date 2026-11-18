@@ -1380,14 +1380,7 @@ const _kmlCache = new Map();  // kmlUrl → kmlText
 
 // ── Proxy 清單：依序嘗試，輪替使用避免單一服務被鎖 ──
 function buildProxyList(kmlUrl) {
-  const enc = encodeURIComponent(kmlUrl);
-  return [
-    `https://corsproxy.io/?${enc}`,
-    `https://api.allorigins.win/raw?url=${enc}`,
-    `https://thingproxy.freeboard.io/fetch/${kmlUrl}`,
-    `https://api.codetabs.com/v1/proxy?quest=${enc}`,
-    `https://yacdn.org/proxy/${kmlUrl}`,
-  ];
+  return [`https://wmts-cors-proxy.cnliang61.workers.dev/?url=${encodeURIComponent(u)}`];
 }
 
 async function fetchKmlWithFallback(kmlUrl) {
