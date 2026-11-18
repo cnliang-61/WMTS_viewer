@@ -847,7 +847,7 @@ async function fetchCapabilities(url) {
 
   // 2. 改走你自己的 Cloudflare Worker 代理
   const enc = encodeURIComponent(url);
-  const myWorkerUrl = `https://wmts-cors-proxy.你的帳號名稱.workers.dev/?url=${enc}`;
+  const myWorkerUrl = `https://wmts-cors-proxy.cnliang61.workers.dev/?url=${enc}`;
 
   const r = await fetch(myWorkerUrl, { signal: AbortSignal.timeout(12000) });
   if (r.ok) {
