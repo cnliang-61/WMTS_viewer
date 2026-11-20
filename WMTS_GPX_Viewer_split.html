@@ -1078,6 +1078,27 @@ const _kmlC=new Map();
 function bPrx(u) {
   return [`https://wmts-cors-proxy.cnliang61.workers.dev/?url=${encodeURIComponent(u)}`];
 }
+async function fetchKML(kurl) {
+  if (_kmlC.has(kurl)) return _kmlC.get(kurl);
+  const proxies = bPrx(kurl);
+  const errors = [];
+  for (const proxy of proxies) {
+    try {
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(12000) });
+      if (r.status === 429) { errors.push(`${new URL(proxy).hostname}: 請求過多(429)`); continue; }
+      if (!r.ok) { errors.push(`${new URL(proxy).hostname}: HTTP ${r.status}`); continue; }
+      const text = await r.text();
+      if (!text.includes('<kml') && !text.includes('<Kml') && !text.includes('<?xml')) {
+        errors.push(`${new URL(proxy).hostname}: 回傳非 KML 內容`); continue;
+      }
+      _kmlC.set(kurl, text);
+      return text;
+    } catch (e) {
+      errors.push(`${new URL(proxy).hostname}: ${e.message}`);
+    }
+  }
+  throw new Error('所有代理伺服器均失敗：\n' + errors.join('\n'));
+}
 async function addMM(s){
   const raw=document.getElementById('mmUrl-'+s).value.trim();
   let nm=document.getElementById('mmNm-'+s).value.trim();
