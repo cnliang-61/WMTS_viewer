@@ -1666,7 +1666,7 @@ function parseWMSCapabilities(xmlText) {
   return layers;
 }
 
-async function fetchWMSCap(url){
+async function fetchWMSCapabilities(url){
   const capUrl=url.split('?')[0]+'?SERVICE=WMS&REQUEST=GetCapabilities';
   try{const r=await fetch(capUrl,{mode:'cors',signal:AbortSignal.timeout(8000)});if(r.ok)return await r.text();}catch(_){}
   const myWorkerUrl = `https://wmts-cors-proxy.cnliang61.workers.dev/?url=${encodeURIComponent(capUrl)}`;
